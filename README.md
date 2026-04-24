@@ -82,4 +82,4 @@ The design is specified in [`.feature-spec/spec.md`](./.feature-spec/spec.md) â€
 
 ## License
 
-To be decided before the first functional release. Until then, treat the code as source-available for evaluation.
+[MIT](./LICENSE) â€” do whatever you want with this code, just keep the copyright notice when redistributing.
