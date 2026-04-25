@@ -18,6 +18,10 @@ data class StateNode(
   override val links: List<NodeId>,
   val category: StateCategory,
   val confidence: Confidence,
+  val occurrenceCount: Int = 1,
+  val sourceIds: List<NodeId> = emptyList(),
+  val patternLinks: List<NodeId> = emptyList(),
+  val contradictedBy: List<NodeId> = emptyList(),
 ) : VaultNode
 
 data class EpisodeNode(
@@ -31,6 +35,10 @@ data class EpisodeNode(
   val domain: String,
   val topic: String,
   val intensity: Intensity,
+  val occurrenceCount: Int = 1,
+  val sourceIds: List<NodeId> = emptyList(),
+  val patternLinks: List<NodeId> = emptyList(),
+  val contradictedBy: List<NodeId> = emptyList(),
 ) : VaultNode
 
 data class PatternNode(
@@ -44,6 +52,8 @@ data class PatternNode(
   val lastObserved: Instant,
   val domainsSeenIn: List<String>,
   val contradictedBy: List<NodeId>,
+  val sourceIds: List<NodeId> = emptyList(),
+  val patternLinks: List<NodeId> = emptyList(),
 ) : VaultNode
 
 data class EmotionalStateNode(
@@ -58,4 +68,7 @@ data class EmotionalStateNode(
   val context: String,
   val triggerHypothesis: String,
   val contradictedBy: List<NodeId>,
+  val occurrenceCount: Int = 1,
+  val sourceIds: List<NodeId> = emptyList(),
+  val patternLinks: List<NodeId> = emptyList(),
 ) : VaultNode

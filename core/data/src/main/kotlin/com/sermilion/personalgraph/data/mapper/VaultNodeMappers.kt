@@ -72,6 +72,11 @@ object VaultNodeMappers {
     confidence = confidenceToString.getValue(node.confidence),
     created = node.createdAt.toFrontmatterLocalDate(),
     updated = node.updatedAt.toFrontmatterLocalDate(),
+    linked = mergeLinks(node.links, node.patternLinks).map { wrapWikilink(it.value) },
+    occurrenceCount = node.occurrenceCount,
+    sourceIds = node.sourceIds.map { it.value },
+    patternLinks = node.patternLinks.map { it.value },
+    contradictedBy = node.contradictedBy.map { it.value },
   )
 
   fun fromStateFrontmatter(
@@ -82,14 +87,20 @@ object VaultNodeMappers {
   ): StateNode? {
     val category = stringToStateCategory[frontmatter.category] ?: return null
     val confidence = stringToConfidence[frontmatter.confidence] ?: return null
+    val frontmatterLinks = frontmatter.linked.mapNotNull { unwrapWikilink(it) }
+    val mergedLinks = mergeLinks(frontmatterLinks, bodyLinks)
     return StateNode(
       id = id,
       createdAt = frontmatter.created.atStartOfDayUtc(),
       updatedAt = frontmatter.updated.atStartOfDayUtc(),
       body = body,
-      links = bodyLinks,
+      links = mergedLinks,
       category = category,
       confidence = confidence,
+      occurrenceCount = frontmatter.occurrenceCount,
+      sourceIds = parseNodeIds(frontmatter.sourceIds),
+      patternLinks = parseNodeIds(frontmatter.patternLinks),
+      contradictedBy = parseNodeIds(frontmatter.contradictedBy),
     )
   }
 
@@ -98,8 +109,12 @@ object VaultNodeMappers {
     episodeType = episodeTypeToString.getValue(node.episodeType),
     domain = node.domain,
     topic = node.topic,
-    linked = node.links.map { wrapWikilink(it.value) },
+    linked = mergeLinks(node.links, node.patternLinks).map { wrapWikilink(it.value) },
     intensity = intensityToString.getValue(node.intensity),
+    occurrenceCount = node.occurrenceCount,
+    sourceIds = node.sourceIds.map { it.value },
+    patternLinks = node.patternLinks.map { it.value },
+    contradictedBy = node.contradictedBy.map { it.value },
   )
 
   fun fromEpisodeFrontmatter(
@@ -123,6 +138,10 @@ object VaultNodeMappers {
       domain = frontmatter.domain,
       topic = frontmatter.topic,
       intensity = intensity,
+      occurrenceCount = frontmatter.occurrenceCount,
+      sourceIds = parseNodeIds(frontmatter.sourceIds),
+      patternLinks = parseNodeIds(frontmatter.patternLinks),
+      contradictedBy = parseNodeIds(frontmatter.contradictedBy),
     )
   }
 
@@ -133,6 +152,8 @@ object VaultNodeMappers {
     lastObserved = node.lastObserved.toFrontmatterLocalDate(),
     domainsSeenIn = node.domainsSeenIn,
     contradictedBy = node.contradictedBy.map { it.value },
+    sourceIds = node.sourceIds.map { it.value },
+    patternLinks = node.patternLinks.map { it.value },
   )
 
   fun fromPatternFrontmatter(
@@ -150,7 +171,9 @@ object VaultNodeMappers {
     evidenceCount = frontmatter.evidenceCount,
     lastObserved = frontmatter.lastObserved.atStartOfDayUtc(),
     domainsSeenIn = frontmatter.domainsSeenIn,
-    contradictedBy = frontmatter.contradictedBy.mapNotNull { runCatching { NodeId(it) }.getOrNull() },
+    contradictedBy = parseNodeIds(frontmatter.contradictedBy),
+    sourceIds = parseNodeIds(frontmatter.sourceIds),
+    patternLinks = parseNodeIds(frontmatter.patternLinks),
   )
 
   fun toEmotionalStateFrontmatter(
@@ -161,8 +184,11 @@ object VaultNodeMappers {
     intensity = intensityToString.getValue(node.intensity),
     context = node.context,
     triggerHypothesis = node.triggerHypothesis,
-    linked = node.links.map { wrapWikilink(it.value) },
+    linked = mergeLinks(node.links, node.patternLinks).map { wrapWikilink(it.value) },
     contradictedBy = node.contradictedBy.map { it.value },
+    occurrenceCount = node.occurrenceCount,
+    sourceIds = node.sourceIds.map { it.value },
+    patternLinks = node.patternLinks.map { it.value },
   )
 
   fun fromEmotionalStateFrontmatter(
@@ -186,7 +212,10 @@ object VaultNodeMappers {
       intensity = intensity,
       context = frontmatter.context,
       triggerHypothesis = frontmatter.triggerHypothesis,
-      contradictedBy = frontmatter.contradictedBy.mapNotNull { runCatching { NodeId(it) }.getOrNull() },
+      contradictedBy = parseNodeIds(frontmatter.contradictedBy),
+      occurrenceCount = frontmatter.occurrenceCount,
+      sourceIds = parseNodeIds(frontmatter.sourceIds),
+      patternLinks = parseNodeIds(frontmatter.patternLinks),
     )
   }
 }

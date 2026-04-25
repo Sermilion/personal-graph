@@ -39,3 +39,6 @@ internal fun mergeLinks(frontmatterLinks: List<NodeId>, bodyLinks: List<NodeId>)
   }
   return result
 }
+
+internal fun parseNodeIds(raw: List<String>): List<NodeId> = raw
+  .mapNotNull { runCatching { NodeId(it) }.getOrNull() }

@@ -77,6 +77,7 @@ internal suspend fun walkAndAccumulate(
 
 internal fun decodeMarkdownIfEligible(ctx: VaultDecodeContext, file: Path): VaultNode? = try {
   when {
+    Files.isSymbolicLink(file) -> null
     !Files.isRegularFile(file) -> null
     !file.fileName.toString().endsWith(MARKDOWN_EXTENSION_VALUE) -> null
     else -> decodeMarkdownFromFile(ctx, file)

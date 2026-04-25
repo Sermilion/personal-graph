@@ -2,6 +2,7 @@ package com.sermilion.personalgraph.data.repository
 
 import com.sermilion.personalgraph.data.codec.MarkdownFrontmatterCodec
 import com.sermilion.personalgraph.data.path.VaultPathResolver
+import com.sermilion.personalgraph.domain.layout.VaultLayout
 import com.sermilion.personalgraph.domain.model.NodeId
 import com.sermilion.personalgraph.domain.model.StateNode
 import com.sermilion.personalgraph.domain.repository.WriteOutcome
@@ -83,6 +84,15 @@ class PersonalGraphVaultRepositoryTest :
       repo.listNodesInBranch("people") shouldBe emptyList()
     }
 
+    test("writeNode rejects paths outside write-allowed branches") {
+      val (repo, _) = newRepository()
+
+      repo.writeNode(VaultNodeFixtures.stateNode(id = "people/private-note"))
+        .shouldBeInstanceOf<WriteOutcome.Failed>()
+      repo.writeNode(VaultNodeFixtures.stateNode(id = "archive/private-note"))
+        .shouldBeInstanceOf<WriteOutcome.Failed>()
+    }
+
     test("vault-escape via symlink to a sibling temp dir is rejected") {
       val (repo, root) = newRepository()
       val outsideRoot = Files.createTempDirectory("vault-escape-")
@@ -110,6 +120,19 @@ class PersonalGraphVaultRepositoryTest :
       Files.exists(root.resolve("staging/observations/maybe.md")) shouldBe false
     }
 
+    test("moveNode rejects target branches outside write policy") {
+      val (repo, root) = newRepository()
+      val originalId = NodeId("staging/observations/private")
+      repo.writeNode(VaultNodeFixtures.stateNode(id = originalId.value)) shouldBe WriteOutcome.Applied
+
+      repo.moveNode(originalId, "people").shouldBeInstanceOf<WriteOutcome.Failed>()
+      repo.moveNode(originalId, "archive").shouldBeInstanceOf<WriteOutcome.Failed>()
+
+      Files.exists(root.resolve("staging/observations/private.md")) shouldBe true
+      Files.exists(root.resolve("people/private.md")) shouldBe false
+      Files.exists(root.resolve("archive/private.md")) shouldBe false
+    }
+
     test("deleteNode happy-path removes file") {
       val (repo, root) = newRepository()
       val id = NodeId("state/preferences/temp")
@@ -120,6 +143,17 @@ class PersonalGraphVaultRepositoryTest :
 
       outcome shouldBe WriteOutcome.Applied
       Files.exists(root.resolve("state/preferences/temp.md")) shouldBe false
+    }
+
+    test("deleteNode rejects paths outside write policy") {
+      val (repo, root) = newRepository()
+      val target = root.resolve("people/private.md")
+      Files.createDirectories(target.parent)
+      Files.writeString(target, "private")
+
+      repo.deleteNode(NodeId("people/private")).shouldBeInstanceOf<WriteOutcome.Failed>()
+
+      Files.exists(target) shouldBe true
     }
 
     test("listBacklinks returns nodes that link to the target id") {
@@ -145,6 +179,32 @@ class PersonalGraphVaultRepositoryTest :
       val nodes = repo.listNodesInBranch("state/preferences")
 
       nodes.map { it.id.value } shouldContainExactlyInAnyOrder listOf(first.id.value, second.id.value)
+    }
+
+    test("listStagedObservations returns observation staging only") {
+      val (repo, _) = newRepository()
+      val observation = VaultNodeFixtures.stateNode(id = "${VaultLayout.BRANCH_STAGING_OBSERVATIONS}/candidate")
+      val sensitive = VaultNodeFixtures.stateNode(id = "${VaultLayout.BRANCH_STAGING_SENSITIVE}/candidate")
+      repo.writeNode(observation) shouldBe WriteOutcome.Applied
+      repo.writeNode(sensitive) shouldBe WriteOutcome.Applied
+
+      val staged = repo.listStagedObservations()
+
+      staged.map { it.id.value } shouldBe listOf(observation.id.value)
+    }
+
+    test("listStagedObservations skips symlinked files") {
+      val (repo, root) = newRepository()
+      val sensitive = VaultNodeFixtures.stateNode(id = "${VaultLayout.BRANCH_STAGING_SENSITIVE}/candidate")
+      repo.writeNode(sensitive) shouldBe WriteOutcome.Applied
+      val observationDir = root.resolve(VaultLayout.BRANCH_STAGING_OBSERVATIONS)
+      Files.createDirectories(observationDir)
+      Files.createSymbolicLink(
+        observationDir.resolve("candidate.md"),
+        root.resolve("${VaultLayout.BRANCH_STAGING_SENSITIVE}/candidate.md"),
+      )
+
+      repo.listStagedObservations() shouldBe emptyList()
     }
 
     test("moveNode returns Conflict when target already exists") {
