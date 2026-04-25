@@ -100,6 +100,11 @@ object McpServerRuntime {
       description = ToolSchemas.DESC_LIST_BRANCH,
       inputSchema = ToolSchemaBuilder.listBranchSchema(),
     ) { request -> tools.listBranch(request.arguments ?: emptyJsonObject).asResult() }
+    server.addTool(
+      name = ToolSchemas.TOOL_SESSION_START,
+      description = ToolSchemas.DESC_SESSION_START,
+      inputSchema = ToolSchemaBuilder.sessionStartSchema(),
+    ) { request -> tools.sessionStart(request.arguments ?: emptyJsonObject).asResult() }
   }
 
   private fun JsonObject.asResult(): CallToolResult {
