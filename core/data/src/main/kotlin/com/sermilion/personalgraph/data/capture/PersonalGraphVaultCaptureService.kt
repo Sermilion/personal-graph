@@ -37,6 +37,8 @@ class PersonalGraphVaultCaptureService(
 
   override suspend fun writeStateObservation(args: WriteStateArgs): CaptureResult {
     val now = clock.now()
+    val singularRejection = rejectSingularStatePrefix(args.id)
+    if (singularRejection != null) return singularRejection
     val targetId = if (args.sensitive) {
       buildSensitiveTargetId(args.id)
     } else {
@@ -54,6 +56,27 @@ class PersonalGraphVaultCaptureService(
       confidence = args.confidence,
     )
     return persistPrimary(node)
+  }
+
+  private fun rejectSingularStatePrefix(id: String): CaptureResult? {
+    val normalizedId = id.trim().lowercase()
+    for ((singularPrefix, canonicalPrefix) in SINGULAR_STATE_PREFIX_REJECTIONS) {
+      if (!normalizedId.startsWith(singularPrefix)) continue
+      val leaf = normalizedId.removePrefix(singularPrefix)
+      if (leaf.isBlank()) {
+        return CaptureResult.InvalidInput(
+          field = FIELD_ID,
+          reason = "leaf is required after canonical state prefix",
+          expected = "$canonicalPrefix<leaf>",
+        )
+      }
+      return CaptureResult.InvalidInput(
+        field = FIELD_ID,
+        reason = "singular state prefix is not allowed; use canonical plural form",
+        expected = "$canonicalPrefix$leaf",
+      )
+    }
+    return null
   }
 
   override suspend fun writeEpisode(args: WriteEpisodeArgs): CaptureResult {
@@ -271,5 +294,19 @@ class PersonalGraphVaultCaptureService(
     private const val FIELD_ID: String = "id"
     private const val FIELD_TARGET_PATH: String = "target_path"
     private const val FIELD_PAYLOAD_KIND: String = "payload_kind"
+
+    private val SINGULAR_STATE_PREFIX_REJECTIONS: List<Pair<String, String>> =
+      StateCategory.entries.mapNotNull { category ->
+        val canonicalPrefix = canonicalPluralPrefixFor(category)
+        val singularPrefix = "${VaultLayout.BRANCH_STATE}/${category.name.lowercase()}/"
+        if (singularPrefix == canonicalPrefix) null else singularPrefix to canonicalPrefix
+      }
+
+    private fun canonicalPluralPrefixFor(category: StateCategory): String = when (category) {
+      StateCategory.Preference -> "${VaultLayout.BRANCH_STATE_PREFERENCES}/"
+      StateCategory.Role -> "${VaultLayout.BRANCH_STATE_ROLES}/"
+      StateCategory.Knowledge -> "${VaultLayout.BRANCH_STATE_KNOWLEDGE}/"
+      StateCategory.Fact -> "${VaultLayout.BRANCH_STATE_KNOWLEDGE}/"
+    }
   }
 }

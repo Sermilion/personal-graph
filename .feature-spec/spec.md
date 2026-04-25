@@ -21,6 +21,7 @@ The proactive-surfacing end state is explicitly out of scope for the initial sta
 
 - **Local-first.** The vault lives on disk only. Cloud sync is deferred; privacy is a harder problem once the vault leaves the device.
 - **Normalized graph.** Cross-cutting observations are extracted into their own nodes and referenced by wikilink from each domain where they appear. Descriptions live in one place; pointers are cheap. Evidence stays in domain branches; abstractions live in `patterns/`.
+- **Reuse-first capture.** Before creating a new node, agents search for an existing state, domain note, pattern, or episode that can be updated, linked, or used as the broader home for the new evidence. New node names should describe the reusable concept, not the exact one-off incident, unless the note is intentionally a dated episode or emotional-state incident.
 - **Evidence over labels.** Entries that shape future agent behavior (knowledge-state, emotional-states, patterns) must be specific incidents with dated evidence and a hypothesis. Never compressed labels. Labels distort every future interaction the agent has with Braian.
 - **Revise aggressively.** Contradicting evidence weakens or annotates existing entries. No entry is immutable.
 - **Confidence-gated writes.** High-confidence observations land in permanent branches immediately. Lower-confidence observations land in `staging/` and graduate only after repetition or explicit promotion.
@@ -153,6 +154,17 @@ contradicted_by: []
 Consolidation may promote recurring triggers into pattern nodes under `patterns/`, linking back to constituent emotional-state nodes. No emotion entry is ever written as a trait.
 
 ## Capture triggers
+
+### Reuse-first write policy
+
+Every capture path starts with a lookup pass:
+
+1. Search loaded context and the relevant vault branch for an existing node about the same durable concept.
+2. If an existing node fits, update that node's body, evidence, `linked:` list, or backlinks instead of creating a sibling note.
+3. If the observation is a new incident under a known concept, create only the dated episode/evidence node and link it to the reusable state/pattern/domain note.
+4. Create a new reusable node only when no existing note can honestly hold the concept.
+
+Name reusable nodes at the concept level: `local-llm-exploration`, `gear-research-before-purchase`, `personal-graph-reuse-first-capture`. Avoid one-off slugs for durable state/pattern nodes when the content is really more general. Dated, exact-topic names remain appropriate for episode and emotional-state evidence nodes.
 
 ### Tier 1 — auto-write, high confidence
 

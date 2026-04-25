@@ -27,6 +27,7 @@ import com.sermilion.personalgraph.domain.retrieval.SkippedBranch
 import com.sermilion.personalgraph.testing.VaultNodeFixtures
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldContain
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
@@ -307,6 +308,37 @@ class VaultMcpToolsTest :
       (result[ToolSchemas.KEY_STATUS] as JsonPrimitive).content shouldBe ToolSchemas.STATUS_INVALID_INPUT
       (result[ToolSchemas.KEY_FIELD] as JsonPrimitive).content shouldBe ToolSchemas.KEY_MESSAGE
       coVerify(exactly = 0) { ctx.retrieval.retrieve(any()) }
+    }
+
+    test("write_episode schema describes ISO-8601 instant rule on date field") {
+      val schema = ToolSchemaBuilder.writeEpisodeSchema()
+      val dateField = schema.properties!![ToolSchemas.KEY_DATE] as JsonObject
+      val description = (dateField["description"] as JsonPrimitive).content
+      description shouldContain "ISO-8601"
+      description shouldContain "2026-04-25T00:00:00Z"
+    }
+
+    test("write_state schema describes id rejection of singular state prefixes") {
+      val schema = ToolSchemaBuilder.writeStateSchema()
+      val idField = schema.properties!![ToolSchemas.KEY_ID] as JsonObject
+      val description = (idField["description"] as JsonPrimitive).content
+      description shouldContain "state/roles"
+      description.lowercase() shouldContain "singular"
+    }
+
+    test("write_state schema describes links as silently dropping invalid entries") {
+      val schema = ToolSchemaBuilder.writeStateSchema()
+      val linksField = schema.properties!![ToolSchemas.KEY_LINKS] as JsonObject
+      val description = (linksField["description"] as JsonPrimitive).content
+      description shouldContain "silently dropped"
+    }
+
+    test("flag_sensitive schema describes payload_kind rejection on type mismatch") {
+      val schema = ToolSchemaBuilder.flagSensitiveSchema()
+      val payloadKindField = schema.properties!![ToolSchemas.KEY_PAYLOAD_KIND] as JsonObject
+      val description = (payloadKindField["description"] as JsonPrimitive).content
+      description shouldContain "payload kind"
+      description shouldContain "rejected"
     }
   })
 

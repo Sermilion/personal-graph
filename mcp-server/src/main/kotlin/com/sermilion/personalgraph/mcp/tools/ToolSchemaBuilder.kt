@@ -7,11 +7,11 @@ internal object ToolSchemaBuilder {
 
   fun writeStateSchema(): ToolSchema = ToolSchema(
     properties = buildJsonObject {
-      put(ToolSchemas.KEY_ID, ToolSchemaProperties.string())
+      put(ToolSchemas.KEY_ID, ToolSchemaProperties.string(ToolSchemas.DESC_FIELD_STATE_ID))
       put(ToolSchemas.KEY_CATEGORY, ToolSchemaProperties.enum(ToolSchemas.ENUM_STATE_CATEGORIES))
       put(ToolSchemas.KEY_CONFIDENCE, ToolSchemaProperties.enum(ToolSchemas.ENUM_CONFIDENCES))
       put(ToolSchemas.KEY_BODY, ToolSchemaProperties.string())
-      put(ToolSchemas.KEY_LINKS, ToolSchemaProperties.stringArray())
+      put(ToolSchemas.KEY_LINKS, ToolSchemaProperties.stringArray(ToolSchemas.DESC_FIELD_LINKS))
       put(ToolSchemas.KEY_SENSITIVE, ToolSchemaProperties.boolean())
     },
     required = listOf(
@@ -23,14 +23,14 @@ internal object ToolSchemaBuilder {
 
   fun writeEpisodeSchema(): ToolSchema = ToolSchema(
     properties = buildJsonObject {
-      put(ToolSchemas.KEY_ID, ToolSchemaProperties.string())
-      put(ToolSchemas.KEY_DATE, ToolSchemaProperties.string())
+      put(ToolSchemas.KEY_ID, ToolSchemaProperties.string(ToolSchemas.DESC_FIELD_NODE_ID))
+      put(ToolSchemas.KEY_DATE, ToolSchemaProperties.string(ToolSchemas.DESC_FIELD_DATE))
       put(ToolSchemas.KEY_EPISODE_TYPE, ToolSchemaProperties.enum(ToolSchemas.ENUM_EPISODE_TYPES))
       put(ToolSchemas.KEY_DOMAIN, ToolSchemaProperties.string())
       put(ToolSchemas.KEY_TOPIC, ToolSchemaProperties.string())
       put(ToolSchemas.KEY_INTENSITY, ToolSchemaProperties.enum(ToolSchemas.ENUM_INTENSITIES))
       put(ToolSchemas.KEY_BODY, ToolSchemaProperties.string())
-      put(ToolSchemas.KEY_LINKED, ToolSchemaProperties.stringArray())
+      put(ToolSchemas.KEY_LINKED, ToolSchemaProperties.stringArray(ToolSchemas.DESC_FIELD_LINKS))
       put(ToolSchemas.KEY_SENSITIVE, ToolSchemaProperties.boolean())
     },
     required = listOf(
@@ -45,11 +45,11 @@ internal object ToolSchemaBuilder {
 
   fun writeToStagingSchema(): ToolSchema = ToolSchema(
     properties = buildJsonObject {
-      put(ToolSchemas.KEY_ID, ToolSchemaProperties.string())
+      put(ToolSchemas.KEY_ID, ToolSchemaProperties.string(ToolSchemas.DESC_FIELD_STATE_ID))
       put(ToolSchemas.KEY_CATEGORY, ToolSchemaProperties.enum(ToolSchemas.ENUM_STATE_CATEGORIES))
       put(ToolSchemas.KEY_CONFIDENCE, ToolSchemaProperties.enum(ToolSchemas.ENUM_CONFIDENCES))
       put(ToolSchemas.KEY_BODY, ToolSchemaProperties.string())
-      put(ToolSchemas.KEY_LINKS, ToolSchemaProperties.stringArray())
+      put(ToolSchemas.KEY_LINKS, ToolSchemaProperties.stringArray(ToolSchemas.DESC_FIELD_LINKS))
     },
     required = listOf(
       ToolSchemas.KEY_ID,
@@ -60,8 +60,11 @@ internal object ToolSchemaBuilder {
 
   fun flagSensitiveSchema(): ToolSchema = ToolSchema(
     properties = buildJsonObject {
-      put(ToolSchemas.KEY_TARGET_PATH, ToolSchemaProperties.string())
-      put(ToolSchemas.KEY_PAYLOAD_KIND, ToolSchemaProperties.enum(ToolSchemas.ENUM_PAYLOAD_KINDS))
+      put(ToolSchemas.KEY_TARGET_PATH, ToolSchemaProperties.string(ToolSchemas.DESC_FIELD_TARGET_PATH))
+      put(
+        ToolSchemas.KEY_PAYLOAD_KIND,
+        ToolSchemaProperties.enum(ToolSchemas.ENUM_PAYLOAD_KINDS, ToolSchemas.DESC_FIELD_PAYLOAD_KIND),
+      )
     },
     required = listOf(ToolSchemas.KEY_TARGET_PATH),
   )
@@ -75,14 +78,14 @@ internal object ToolSchemaBuilder {
 
   fun readNodeSchema(): ToolSchema = ToolSchema(
     properties = buildJsonObject {
-      put(ToolSchemas.KEY_ID, ToolSchemaProperties.string())
+      put(ToolSchemas.KEY_ID, ToolSchemaProperties.string(ToolSchemas.DESC_FIELD_NODE_ID))
     },
     required = listOf(ToolSchemas.KEY_ID),
   )
 
   fun listBranchSchema(): ToolSchema = ToolSchema(
     properties = buildJsonObject {
-      put(ToolSchemas.KEY_BRANCH, ToolSchemaProperties.string())
+      put(ToolSchemas.KEY_BRANCH, ToolSchemaProperties.string(ToolSchemas.DESC_FIELD_BRANCH))
     },
     required = listOf(ToolSchemas.KEY_BRANCH),
   )

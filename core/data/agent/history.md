@@ -1,5 +1,17 @@
 # core/data — history
 
+## [2026-04-25] capture-retrieval-classifier-fixes (PG-1)
+Areas: core/data (retrieval classifier + capture id rejection), mcp-server (schema description sweep, `ToolSchemaProperties.description` optional param), core/data tests
+- `PersonalGraphSessionStartRetrievalService.classify` now picks the highest-match-count domain across Work/Personal/Creative; `maxByOrNull` keeps the first tied candidate, so list order Work>Personal>Creative is the deterministic tiebreak (was first-non-empty, which silently lost recall when multiple domains had matches)
+- Term-boundary regex is `(?i)(?<![a-z0-9_-])$escaped(?![a-z0-9_-])` — `-` and `_` are now part of a token, so compound names like `personal-graph` don't leak constituent matches; intentional trade-off: hyphenated discrete words (`co-design`) classify as `General` (revert reintroduces the leak)
+- `branchPlanFor` always loads `state/preferences` and `state/roles`; `state/knowledge` only on `General`; declarative concatenation with named `REASON_*` constants — no mutation (reusable for future durable-state branches)
+- `PersonalGraphVaultCaptureService.rejectSingularStatePrefix` runs unconditionally before sensitive routing, trims+lowercases ids, returns `CaptureResult.InvalidInput.expected` carrying the canonical plural form (reuses the existing `expected` slot — same shape as payload-kind mismatch in `validateExistingForFlag`)
+- `SINGULAR_STATE_PREFIX_REJECTIONS` is **derived from `StateCategory.entries`** so future categories cannot drift; `Knowledge` is auto-filtered (singular == canonical); `Fact` maps to `state/knowledge/` (reusable pattern for enum-derived rejection sets)
+- `ToolSchemaProperties.string()/boolean()/stringArray()/enum()` now accept an optional `description` param; new `DESC_FIELD_*` constants in `ToolSchemas` carry per-field rules — split `DESC_FIELD_STATE_ID` vs `DESC_FIELD_NODE_ID` so each tool's id description reflects its own validation behavior (reusable pattern for any future schema field)
+- Schema descriptions must stay faithful to runtime behavior — `DESC_FIELD_LINKS` was reworded to disclose silent-drop in `toNodeIds()` rather than overpromise canonical enforcement; pitfall: don't aspire in description text
+Feature flag: N/A
+Acceptance criteria: 8/8 implemented
+
 ## [2026-04-25] session-start-retrieval (GRP-3)
 Areas: core/domain (SessionStartRetrievalService contract), core/data (retrieval engine), cli (session-start command), mcp-server (session_start tool), docs
 - `SessionStartRetrievalService` owns Stage 3 retrieval: loads `Braian.md` first, classifies the first substantive message deterministically, then returns loaded branches/nodes/skips/audit as the shared CLI/MCP report contract (reusable retrieval boundary)

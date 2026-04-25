@@ -12,6 +12,7 @@ Stage 1 shipped. The CLI scaffolds an Obsidian-compatible vault on demand (`pers
 
 - **Local-first.** The vault lives on disk only. Cloud sync is deferred.
 - **Normalized graph.** Cross-cutting observations are extracted into their own pattern nodes and referenced by wikilink from each domain where they appear. No duplicated descriptions.
+- **Reuse-first capture.** Agents should look for a relevant existing note before creating a new one. Durable state and pattern notes should be named for reusable concepts, while exact incident names belong mainly to dated episode/evidence nodes.
 - **Evidence over labels.** Entries that shape future agent behavior (knowledge state, emotional state, patterns) must be specific dated incidents with hypotheses — never compressed personality labels.
 - **Confidence-gated writes.** High-confidence observations land in permanent branches; lower-confidence observations land in `staging/` and graduate only after repetition or explicit promotion.
 - **Async sensitivity handling.** Agents never pause mid-conversation to ask whether to log. Potentially sensitive episodes go to `staging/sensitive/` for batch review.

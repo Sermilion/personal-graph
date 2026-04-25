@@ -11,9 +11,11 @@ import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalRequest
 import com.sermilion.personalgraph.testing.TestDispatcherProvider
 import com.sermilion.personalgraph.testing.VaultNodeFixtures
 import io.kotest.core.spec.style.FunSpec
+import io.kotest.matchers.collections.shouldBeEmpty
 import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
+import io.kotest.matchers.collections.shouldNotContain
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import java.nio.file.Files
@@ -56,16 +58,19 @@ class PersonalGraphSessionStartRetrievalServiceTest :
       repo.writeNode(workNode) shouldBe WriteOutcome.Applied
       repo.writeNode(pattern) shouldBe WriteOutcome.Applied
 
-      val report = service.retrieve(SessionStartRetrievalRequest("Can you review this Capmo PR?"))
+      val report = service.retrieve(SessionStartRetrievalRequest("Capmo work please"))
 
       report.rootDocument?.loadOrder shouldBe 1
       report.rootDocument?.body shouldContain "Root context"
       report.classification.domain shouldBe RetrievalDomain.WorkCapmo
-      report.classification.matchedTerms shouldContainExactlyInAnyOrder listOf("capmo", "pr", "review")
-      report.loadedBranches.map { it.branch } shouldContainExactly listOf("domains/work/capmo")
+      report.classification.matchedTerms shouldContainExactlyInAnyOrder listOf("capmo", "work")
+      report.loadedBranches.map { it.branch } shouldContainExactly listOf(
+        VaultLayout.BRANCH_STATE_PREFERENCES,
+        VaultLayout.BRANCH_STATE_ROLES,
+        "domains/work/capmo",
+      )
       report.loadedNodes.map { it.id } shouldContain "domains/work/capmo/events/review"
       report.loadedNodes.map { it.id } shouldContain "patterns/review-shape"
-      report.loadedNodes.first { it.id == "domains/work/capmo/events/review" }.loadOrder shouldBe 2
       report.loadedNodes.first { it.id == "patterns/review-shape" }.reason shouldContain "wikilinked pattern"
       report.audit.map { it.action } shouldContain "loaded_pattern"
     }
@@ -115,13 +120,118 @@ class PersonalGraphSessionStartRetrievalServiceTest :
         outsideTarget,
       )
 
-      val report = service.retrieve(SessionStartRetrievalRequest("Work review please"))
+      val report = service.retrieve(SessionStartRetrievalRequest("Work please"))
 
       report.skippedBranches.map { it.branch } shouldContain VaultLayout.BRANCH_PEOPLE
       report.skippedBranches.map { it.branch } shouldContain VaultLayout.BRANCH_STAGING
       report.loadedNodes.map { it.id }.contains("staging/sensitive/private") shouldBe false
       report.loadedNodes.map { it.id }.contains("patterns/secret") shouldBe false
       report.audit.any { it.action == "skipped_pattern" && it.subject == "patterns/secret" } shouldBe true
+    }
+
+    test("classifier picks the domain with the highest match count") {
+      val (service, _) = newService()
+
+      val report = service.retrieve(
+        SessionStartRetrievalRequest("song guitar drums and a tiny bit of work"),
+      )
+
+      report.classification.domain shouldBe RetrievalDomain.Creative
+      report.classification.matchedTerms shouldContainExactlyInAnyOrder listOf("song", "guitar", "drums")
+    }
+
+    test("classifier breaks ties on Work > Personal > Creative declared order") {
+      val (service, _) = newService()
+
+      val workVsPersonal = service.retrieve(SessionStartRetrievalRequest("work with family"))
+      workVsPersonal.classification.domain shouldBe RetrievalDomain.WorkCapmo
+
+      val workVsCreative = service.retrieve(SessionStartRetrievalRequest("work with song"))
+      workVsCreative.classification.domain shouldBe RetrievalDomain.WorkCapmo
+
+      val personalVsCreative = service.retrieve(SessionStartRetrievalRequest("family time with song"))
+      personalVsCreative.classification.domain shouldBe RetrievalDomain.Personal
+    }
+
+    test("hyphen does not act as a word boundary in compound terms like work-from-home") {
+      val (service, _) = newService()
+
+      val report = service.retrieve(
+        SessionStartRetrievalRequest("work-from-home setup"),
+      )
+
+      report.classification.matchedTerms.shouldNotContain("work")
+      report.classification.domain shouldBe RetrievalDomain.General
+    }
+
+    test("compound word personal-graph does not match the pruned personal term and stays General") {
+      val (service, _) = newService()
+
+      val report = service.retrieve(
+        SessionStartRetrievalRequest("Tell me about personal-graph internals"),
+      )
+
+      report.classification.domain shouldBe RetrievalDomain.General
+      report.classification.matchedTerms.shouldNotContain("personal")
+    }
+
+    test("pruned generic terms no longer trigger their domain") {
+      val (service, _) = newService()
+      val prunedSentences = listOf(
+        "review the pr and the code today",
+        "this is a project review",
+        "let's have a meeting",
+        "personal note about home",
+      )
+
+      for (message in prunedSentences) {
+        val report = service.retrieve(SessionStartRetrievalRequest(message))
+        report.classification.domain shouldBe RetrievalDomain.General
+        report.classification.matchedTerms.shouldBeEmpty()
+      }
+    }
+
+    test("expanded creative vocabulary routes to creative branch") {
+      val (service, _) = newService()
+      val creativeMessages = listOf(
+        "let me write a song today",
+        "audio recording session in the studio",
+        "starting a guitar mixdown",
+        "want to paint and sketch",
+        "joining a band as instrumentalist",
+      )
+
+      for (message in creativeMessages) {
+        val report = service.retrieve(SessionStartRetrievalRequest(message))
+        report.classification.domain shouldBe RetrievalDomain.Creative
+      }
+    }
+
+    test("session_start always loads preferences and roles regardless of classification") {
+      val (service, _) = newService()
+      val classifications = listOf(
+        "Capmo work" to RetrievalDomain.WorkCapmo,
+        "song guitar studio" to RetrievalDomain.Creative,
+        "family health habit" to RetrievalDomain.Personal,
+        "What should we talk about next?" to RetrievalDomain.General,
+      )
+
+      for ((message, expected) in classifications) {
+        val report = service.retrieve(SessionStartRetrievalRequest(message))
+        report.classification.domain shouldBe expected
+        report.loadedBranches.map { it.branch } shouldContain VaultLayout.BRANCH_STATE_PREFERENCES
+        report.loadedBranches.map { it.branch } shouldContain VaultLayout.BRANCH_STATE_ROLES
+      }
+    }
+
+    test("state knowledge branch is loaded only on General classification") {
+      val (service, _) = newService()
+
+      val workReport = service.retrieve(SessionStartRetrievalRequest("Capmo work"))
+      workReport.loadedBranches.map { it.branch }.shouldNotContain(VaultLayout.BRANCH_STATE_KNOWLEDGE)
+
+      val generalReport = service.retrieve(SessionStartRetrievalRequest("What should we talk about next?"))
+      generalReport.loadedBranches.map { it.branch } shouldContain VaultLayout.BRANCH_STATE_KNOWLEDGE
     }
   })
 

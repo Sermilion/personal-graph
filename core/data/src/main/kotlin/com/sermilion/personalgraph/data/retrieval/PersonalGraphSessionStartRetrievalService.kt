@@ -95,12 +95,16 @@ class PersonalGraphSessionStartRetrievalService(
     val personalMatches = matchedTerms(message, PERSONAL_TERMS)
     val creativeMatches = matchedTerms(message, CREATIVE_TERMS)
     val emotionalMatches = matchedTerms(message, EMOTIONAL_TERMS)
-    val domain = when {
-      workMatches.isNotEmpty() -> RetrievalDomain.WorkCapmo
-      personalMatches.isNotEmpty() -> RetrievalDomain.Personal
-      creativeMatches.isNotEmpty() -> RetrievalDomain.Creative
-      else -> RetrievalDomain.General
-    }
+    val candidates = listOf(
+      RetrievalDomain.WorkCapmo to workMatches,
+      RetrievalDomain.Personal to personalMatches,
+      RetrievalDomain.Creative to creativeMatches,
+    )
+    val bestDomain = candidates
+      .filter { it.second.isNotEmpty() }
+      .maxByOrNull { it.second.size }
+      ?.first
+    val domain = bestDomain ?: RetrievalDomain.General
     return RetrievalClassification(
       domain = domain,
       matchedTerms = when (domain) {
@@ -119,7 +123,7 @@ class PersonalGraphSessionStartRetrievalService(
 
   private fun containsTerm(message: String, term: String): Boolean {
     val escaped = Regex.escape(term)
-    return Regex("""(?i)(?<![a-z0-9])$escaped(?![a-z0-9])""").containsMatchIn(message)
+    return Regex("""(?i)(?<![a-z0-9_-])$escaped(?![a-z0-9_-])""").containsMatchIn(message)
   }
 
   private fun classificationReason(classification: RetrievalClassification): String {
@@ -137,28 +141,29 @@ class PersonalGraphSessionStartRetrievalService(
   }
 
   private fun branchPlanFor(classification: RetrievalClassification): List<Pair<String, String>> {
-    val branches = when (classification.domain) {
+    val knowledgeBranch = if (classification.domain == RetrievalDomain.General) {
+      listOf(VaultLayout.BRANCH_STATE_KNOWLEDGE to REASON_KNOWLEDGE_GENERAL)
+    } else {
+      emptyList()
+    }
+    val domainBranches = when (classification.domain) {
       RetrievalDomain.WorkCapmo -> listOf(
-        "${VaultLayout.BRANCH_DOMAINS}/work/capmo" to
-          "classified work/capmo from first substantive message",
+        "${VaultLayout.BRANCH_DOMAINS}/work/capmo" to REASON_DOMAIN_WORK_CAPMO,
       )
       RetrievalDomain.Personal -> listOf(
-        "${VaultLayout.BRANCH_DOMAINS}/personal" to
-          "classified personal from first substantive message",
+        "${VaultLayout.BRANCH_DOMAINS}/personal" to REASON_DOMAIN_PERSONAL,
       )
       RetrievalDomain.Creative -> listOf(
-        "${VaultLayout.BRANCH_DOMAINS}/creative" to
-          "classified creative from first substantive message",
+        "${VaultLayout.BRANCH_DOMAINS}/creative" to REASON_DOMAIN_CREATIVE,
       )
-      RetrievalDomain.General -> DURABLE_STATE_BRANCHES.map { branch ->
-        branch to "general classification loads durable state branch"
-      }
+      RetrievalDomain.General -> emptyList()
     }
-    return if (classification.emotionalContextRequested) {
-      branches + (VaultLayout.BRANCH_EMOTIONAL_STATES to "explicit emotional/self-reflection context")
+    val emotionalBranch = if (classification.emotionalContextRequested) {
+      listOf(VaultLayout.BRANCH_EMOTIONAL_STATES to REASON_EMOTIONAL_REQUESTED)
     } else {
-      branches
+      emptyList()
     }
+    return DURABLE_STATE_BRANCHES_ALWAYS + knowledgeBranch + domainBranches + emotionalBranch
   }
 
   private fun addDefaultSkips(
@@ -355,10 +360,24 @@ class PersonalGraphSessionStartRetrievalService(
   companion object {
     private const val MAX_PATTERN_RESULTS: Int = 64
 
-    private val DURABLE_STATE_BRANCHES: List<String> = listOf(
-      VaultLayout.BRANCH_STATE_PREFERENCES,
-      VaultLayout.BRANCH_STATE_ROLES,
-      VaultLayout.BRANCH_STATE_KNOWLEDGE,
+    private const val REASON_PREFERENCES_ALWAYS: String =
+      "preferences are always loaded regardless of classification"
+    private const val REASON_ROLES_ALWAYS: String =
+      "roles are always loaded regardless of classification"
+    private const val REASON_KNOWLEDGE_GENERAL: String =
+      "general classification loads durable knowledge branch"
+    private const val REASON_DOMAIN_WORK_CAPMO: String =
+      "classified work/capmo from first substantive message"
+    private const val REASON_DOMAIN_PERSONAL: String =
+      "classified personal from first substantive message"
+    private const val REASON_DOMAIN_CREATIVE: String =
+      "classified creative from first substantive message"
+    private const val REASON_EMOTIONAL_REQUESTED: String =
+      "explicit emotional/self-reflection context"
+
+    private val DURABLE_STATE_BRANCHES_ALWAYS: List<Pair<String, String>> = listOf(
+      VaultLayout.BRANCH_STATE_PREFERENCES to REASON_PREFERENCES_ALWAYS,
+      VaultLayout.BRANCH_STATE_ROLES to REASON_ROLES_ALWAYS,
     )
 
     private val WORK_TERMS: List<String> = listOf(
@@ -366,17 +385,10 @@ class PersonalGraphSessionStartRetrievalService(
       "work",
       "job",
       "company",
-      "project",
-      "code",
-      "pr",
-      "review",
-      "meeting",
       "manager",
     )
 
     private val PERSONAL_TERMS: List<String> = listOf(
-      "personal",
-      "home",
       "family",
       "health",
       "habit",
@@ -391,6 +403,23 @@ class PersonalGraphSessionStartRetrievalService(
       "music",
       "art",
       "design",
+      "song",
+      "audio",
+      "recording",
+      "mixdown",
+      "bass",
+      "drums",
+      "guitar",
+      "track",
+      "arrangement",
+      "mp3",
+      "studio",
+      "compose",
+      "paint",
+      "draw",
+      "sketch",
+      "band",
+      "instrument",
     )
 
     private val EMOTIONAL_TERMS: List<String> = listOf(
