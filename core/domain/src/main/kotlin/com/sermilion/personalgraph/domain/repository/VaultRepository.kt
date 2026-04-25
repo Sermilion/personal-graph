@@ -1,6 +1,7 @@
 package com.sermilion.personalgraph.domain.repository
 
 import com.sermilion.personalgraph.domain.model.NodeId
+import com.sermilion.personalgraph.domain.model.StateNode
 import com.sermilion.personalgraph.domain.model.VaultNode
 import kotlinx.coroutines.flow.Flow
 
@@ -22,6 +23,8 @@ interface VaultRepository {
   suspend fun findNode(id: NodeId): VaultNode?
 
   suspend fun listNodesInBranch(branchPath: String): List<VaultNode>
+
+  suspend fun listStagedObservations(): List<StateNode>
 
   suspend fun writeNode(node: VaultNode): WriteOutcome
 

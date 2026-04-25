@@ -4,8 +4,10 @@ import com.sermilion.personalgraph.common.di.AppScope
 import com.sermilion.personalgraph.common.dispatcher.DispatcherProvider
 import com.sermilion.personalgraph.data.codec.MarkdownFrontmatterCodec
 import com.sermilion.personalgraph.data.path.VaultPathResolver
+import com.sermilion.personalgraph.domain.layout.VaultLayout
 import com.sermilion.personalgraph.domain.layout.VaultPolicy
 import com.sermilion.personalgraph.domain.model.NodeId
+import com.sermilion.personalgraph.domain.model.StateNode
 import com.sermilion.personalgraph.domain.model.VaultNode
 import com.sermilion.personalgraph.domain.repository.VaultRepository
 import com.sermilion.personalgraph.domain.repository.WriteOutcome
@@ -73,8 +75,16 @@ class PersonalGraphVaultRepository(
       logger.debug { "listNodesInBranch blocked: branchPath=$branchPath is read-blocked" }
       return@withContext emptyList()
     }
+    if (!VaultPolicy.isReadAllowed(branchPath)) {
+      logger.debug { "listNodesInBranch blocked: branchPath=$branchPath is not read-allowed" }
+      return@withContext emptyList()
+    }
     listBranchUnsafeOrLogged(branchPath)
   }
+
+  override suspend fun listStagedObservations(): List<StateNode> = listNodesInBranch(
+    VaultLayout.BRANCH_STAGING_OBSERVATIONS,
+  ).filterIsInstance<StateNode>()
 
   override suspend fun writeNode(node: VaultNode): WriteOutcome = withContext(dispatcherProvider.io) {
     nodeMutexes.computeIfAbsent(node.id) { Mutex() }.withLock { writeNodeLocked(node) }
@@ -145,6 +155,7 @@ class PersonalGraphVaultRepository(
     val target = pathResolver.resolve(vaultRoot, node.id)
     val parent = target.parent
     val rejection = when {
+      !VaultPolicy.isWriteAllowed(node.id.value) -> WriteOutcome.Failed(REASON_WRITE_BLOCKED)
       !pathResolver.assertWithinVault(vaultRoot, target) -> WriteOutcome.Failed(REASON_OUTSIDE_VAULT)
       parent == null -> WriteOutcome.Failed(REASON_NO_PARENT)
       else -> null
@@ -218,6 +229,7 @@ class PersonalGraphVaultRepository(
     val source = pathResolver.resolve(vaultRoot, id)
     val targetDir = vaultRoot.resolve(newBranchPath)
     val precheck = when {
+      !VaultPolicy.isWriteAllowed(newBranchPath) -> WriteOutcome.Failed(REASON_WRITE_BLOCKED)
       !pathResolver.assertWithinVault(vaultRoot, source) -> WriteOutcome.Failed(REASON_OUTSIDE_VAULT)
       !Files.exists(source) -> WriteOutcome.NotFound
       !pathResolver.assertWithinVault(vaultRoot, targetDir) -> WriteOutcome.Failed(REASON_OUTSIDE_VAULT)
@@ -240,6 +252,7 @@ class PersonalGraphVaultRepository(
   private fun deleteNodeLockedOrLogged(id: NodeId): WriteOutcome = try {
     val target = pathResolver.resolve(vaultRoot, id)
     when {
+      !VaultPolicy.isWriteAllowed(id.value) -> WriteOutcome.Failed(REASON_WRITE_BLOCKED)
       !pathResolver.assertWithinVault(vaultRoot, target) -> WriteOutcome.Failed(REASON_OUTSIDE_VAULT)
       Files.deleteIfExists(target) -> WriteOutcome.Applied
       else -> WriteOutcome.NotFound
@@ -270,6 +283,7 @@ class PersonalGraphVaultRepository(
   companion object {
     private const val REASON_OUTSIDE_VAULT: String = "Path is outside the vault root"
     private const val REASON_NO_PARENT: String = "Target has no parent directory"
+    private const val REASON_WRITE_BLOCKED: String = "Path is outside write-allowed vault branches"
     private const val MAX_LIST_DEPTH: Int = 8
     private const val MAX_LIST_RESULTS: Int = 1000
     private const val MAX_BACKLINK_DEPTH: Int = 8

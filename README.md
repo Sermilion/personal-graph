@@ -6,7 +6,7 @@ Context about a person is currently locked inside individual AI tools. The same 
 
 ## Status
 
-Stage 1 shipped. The CLI scaffolds an Obsidian-compatible vault on demand (`personal-graph init --vault <path>`) and the local MCP server exposes scoped read/write capture tools over stdio. Tier 1 capture (`write_state`, `write_episode`, `write_to_staging`), sensitivity routing (`flag_sensitive`, `list_pending_sensitive`), and scoped reads (`read_node`, `list_branch`) are working end-to-end. Consolidation, session-start retrieval, and proactive surfacing remain placeholders. See [`.feature-spec/spec.md`](./.feature-spec/spec.md) for the full vision and phased roadmap; per-stage progress lives in [`.feature-specs/STAGES.md`](./.feature-specs/STAGES.md).
+Stage 1 shipped. The CLI scaffolds an Obsidian-compatible vault on demand (`personal-graph init --vault <path>`) and the local MCP server exposes scoped read/write capture tools over stdio. Tier 1 capture (`write_state`, `write_episode`, `write_to_staging`), sensitivity routing (`flag_sensitive`, `list_pending_sensitive`), and scoped reads (`read_node`, `list_branch`) are working end-to-end. Stage 2 consolidation is implemented as a manual CLI command that promotes repeated staged observations, merges equivalent duplicates, extracts pattern hubs, and annotates contradictions. Session-start retrieval and proactive surfacing remain placeholders. See [`.feature-spec/spec.md`](./.feature-spec/spec.md) for the full vision and phased roadmap; per-stage progress lives in [`.feature-specs/STAGES.md`](./.feature-specs/STAGES.md).
 
 ## Design principles
 
@@ -76,6 +76,14 @@ cli/build/install/personal-graph-cli/bin/personal-graph-cli init --vault /absolu
 
 The CLI creates the directory layout (`state/...`, `domains/...`, `patterns/`, `emotional-states/`, `timeline/`, `staging/...`, `people/`) and seeds `Braian.md` with a short orientation note. Replace the `# TODO` block with a few sentences about yourself before pointing agents at it.
 
+Run manual consolidation:
+
+```bash
+cli/build/install/personal-graph-cli/bin/personal-graph-cli consolidate --vault /absolute/path/to/your/vault
+```
+
+Consolidation reads `staging/observations/` and durable graph branches only. By default it never reads `staging/sensitive/` or `people/`; sensitive review remains explicit through the Stage 1 sensitive queue tools.
+
 Run the local MCP server over stdio:
 
 ```bash
@@ -93,7 +101,7 @@ All log output goes to stderr; stdout is reserved for the MCP framing channel.
 ## Roadmap
 
 - **Stage 1 — vault + capture (MVP) — shipped.** `personal-graph init` scaffolds the layout; the local MCP server writes Tier 1 observations and episode nodes passively during agent conversations; sensitivity flagging routes to `staging/sensitive/`.
-- **Stage 2 — consolidation (next):** standalone CLI promotes staged observations, extracts cross-cutting pattern hubs, annotates contradictions.
+- **Stage 2 — consolidation — implemented:** standalone CLI promotes staged observations, merges equivalent staged duplicates, extracts cross-cutting pattern hubs, annotates contradictions, and reports changed node ids.
 - **Stage 3 — session-start retrieval:** agents load `Braian.md` + classified domain subtree + linked patterns at the start of every session.
 - **Stage 4 — proactive surfacing:** agents detect trigger conditions in-session and surface relevant prior context ("btw, you usually forget X around this point"). Gated behind 2+ months of Stages 1-3 in continuous use.
 

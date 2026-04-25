@@ -1,9 +1,11 @@
 package com.sermilion.personalgraph.data.di
 
 import com.sermilion.personalgraph.data.capture.PersonalGraphVaultCaptureService
+import com.sermilion.personalgraph.data.consolidation.PersonalGraphVaultConsolidationService
 import com.sermilion.personalgraph.data.repository.PersonalGraphVaultRepository
 import com.sermilion.personalgraph.data.scaffold.PersonalGraphVaultScaffolder
 import com.sermilion.personalgraph.domain.capture.VaultCaptureService
+import com.sermilion.personalgraph.domain.repository.ConsolidationService
 import com.sermilion.personalgraph.domain.repository.VaultRepository
 import com.sermilion.personalgraph.domain.scaffold.VaultScaffolder
 import kotlinx.datetime.Clock
@@ -18,6 +20,9 @@ interface DataComponent {
 
   @Provides
   fun provideVaultCaptureService(impl: PersonalGraphVaultCaptureService): VaultCaptureService = impl
+
+  @Provides
+  fun provideConsolidationService(impl: PersonalGraphVaultConsolidationService): ConsolidationService = impl
 
   @Provides
   fun provideClock(): Clock = Clock.System

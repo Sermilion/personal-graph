@@ -14,6 +14,9 @@ data class EmotionalStateNodeFrontmatterDataModel(
   @SerialName("trigger_hypothesis") val triggerHypothesis: String,
   val linked: List<String> = emptyList(),
   @SerialName("contradicted_by") val contradictedBy: List<String> = emptyList(),
+  @SerialName("occurrence_count") val occurrenceCount: Int = 1,
+  @SerialName("source_ids") val sourceIds: List<String> = emptyList(),
+  @SerialName("pattern_links") val patternLinks: List<String> = emptyList(),
 ) {
   companion object {
     const val NODE_TYPE: String = "emotional-state"

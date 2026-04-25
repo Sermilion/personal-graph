@@ -1,5 +1,15 @@
 # core/data — history
 
+## [2026-04-25] consolidation (GRP-2)
+Areas: core/domain (ConsolidationService report contract, VaultRepository staging API, node metadata), core/data (consolidation engine, repository scan hardening, frontmatter mappers), cli (manual consolidate command), core/testing
+- `PersonalGraphVaultConsolidationService` owns Stage 2 Tier-3 promotion: scans `staging/observations/`, groups by normalized claim/context, graduates repeated sightings, merges equivalent staged duplicates, and deletes only processed staged sources (reusable consolidation boundary)
+- Pattern promotion uses >=2 domains or >=3 occurrences; include matched durable-node domains/counts when evaluating staged sightings, and resolve existing pattern ids with `repository.findNode()` before writes so capped scans cannot overwrite pattern metadata (pitfalls fixed)
+- Contradictions annotate the durable target (`contradicted_by` + body note), report the changed durable node while keeping staged source ids, stay idempotent on repeat runs, and block contradictory staged sources from promotion (reusable report semantics)
+- Repository branch scans now skip symlinked files before decode/read; `listStagedObservations()` only reads `staging/observations/`, and write/move/delete enforce `VaultPolicy.isWriteAllowed` to preserve Stage 1 path rules (reusable policy guard)
+- Consolidation metadata (`occurrence_count`, `source_ids`, `pattern_links`, `contradicted_by`) round-trips through all node schemas; CLI reports counts plus changed ids via the production `personalGraphCli()` command tree
+Feature flag: N/A
+Acceptance criteria: 11/11 implemented
+
 ## [2026-04-25] stage-1-vault-and-capture (GRP-1)
 Areas: core/domain (VaultLayout, VaultPolicy, VaultCaptureService, VaultScaffolder), core/data (codec, repository, scaffolder, capture impl, mappers), core/testing (TestDispatcherProvider, four node fixtures), mcp-server (7 stdio tools, ToolSchemaBuilder, runtime), cli (init command)
 - Vault scaffolder + Braian.md seed wired through `personal-graph init --vault`; idempotent (Files.notExists guard preserves existing seed content) (reusable)
