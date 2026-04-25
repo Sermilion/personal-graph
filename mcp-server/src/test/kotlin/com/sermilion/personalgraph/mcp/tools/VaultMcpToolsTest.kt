@@ -14,6 +14,16 @@ import com.sermilion.personalgraph.domain.model.Confidence
 import com.sermilion.personalgraph.domain.model.NodeId
 import com.sermilion.personalgraph.domain.model.StateCategory
 import com.sermilion.personalgraph.domain.repository.VaultRepository
+import com.sermilion.personalgraph.domain.retrieval.RetrievalAuditEntry
+import com.sermilion.personalgraph.domain.retrieval.RetrievalClassification
+import com.sermilion.personalgraph.domain.retrieval.RetrievalDomain
+import com.sermilion.personalgraph.domain.retrieval.RetrievedBranch
+import com.sermilion.personalgraph.domain.retrieval.RetrievedNode
+import com.sermilion.personalgraph.domain.retrieval.RetrievedRootDocument
+import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalReport
+import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalRequest
+import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalService
+import com.sermilion.personalgraph.domain.retrieval.SkippedBranch
 import com.sermilion.personalgraph.testing.VaultNodeFixtures
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
@@ -35,8 +45,9 @@ class VaultMcpToolsTest :
       val tempDir = Files.createTempDirectory("mcp-tools-")
       val repo = mockk<VaultRepository>()
       val capture = mockk<VaultCaptureService>()
-      val tools = VaultMcpTools(repo, VaultPathResolver(), tempDir, capture)
-      return VaultMcpToolsTestContext(tools, repo, capture, tempDir)
+      val retrieval = mockk<SessionStartRetrievalService>()
+      val tools = VaultMcpTools(repo, VaultPathResolver(), tempDir, capture, retrieval)
+      return VaultMcpToolsTestContext(tools, repo, capture, retrieval, tempDir)
     }
 
     test("write_state happy-path forwards typed args to capture service") {
@@ -238,11 +249,71 @@ class VaultMcpToolsTest :
       captured.captured.id shouldBe "maybe"
       coVerify(exactly = 1) { ctx.capture.writeToStaging(any()) }
     }
+
+    test("session_start returns retrieval report json") {
+      val ctx = newTools()
+      coEvery {
+        ctx.retrieval.retrieve(SessionStartRetrievalRequest("review a Capmo PR"))
+      } returns SessionStartRetrievalReport(
+        rootDocument = RetrievedRootDocument(
+          path = "Braian.md",
+          body = "# Braian\n",
+          loadOrder = 1,
+          reason = "root orienting note is always loaded first",
+        ),
+        classification = RetrievalClassification(
+          domain = RetrievalDomain.WorkCapmo,
+          matchedTerms = listOf("capmo", "pr"),
+          emotionalContextRequested = false,
+          emotionalMatchedTerms = emptyList(),
+        ),
+        loadedBranches = listOf(
+          RetrievedBranch("domains/work/capmo", "classified work/capmo from first substantive message", 1),
+        ),
+        loadedNodes = listOf(
+          RetrievedNode(
+            id = "domains/work/capmo/events/review",
+            body = "Review context.",
+            links = listOf("patterns/review-shape"),
+            patternLinks = emptyList(),
+            loadOrder = 2,
+            reason = "classified work/capmo from first substantive message",
+          ),
+        ),
+        skippedBranches = listOf(SkippedBranch("people", "people/ is never loaded by session-start retrieval")),
+        audit = listOf(
+          RetrievalAuditEntry("classified", "work/capmo", "matched terms: capmo,pr"),
+        ),
+      )
+
+      val result = ctx.tools.sessionStart(
+        buildJsonObject { put(ToolSchemas.KEY_MESSAGE, JsonPrimitive("review a Capmo PR")) },
+      )
+
+      (result[ToolSchemas.KEY_STATUS] as JsonPrimitive).content shouldBe ToolSchemas.STATUS_OK
+      val classification = result[ToolSchemas.KEY_CLASSIFICATION] as JsonObject
+      (classification[ToolSchemas.KEY_DOMAIN] as JsonPrimitive).content shouldBe "work/capmo"
+      val nodes = result[ToolSchemas.KEY_NODES] as JsonArray
+      ((nodes[0] as JsonObject)[ToolSchemas.KEY_ID] as JsonPrimitive).content shouldBe
+        "domains/work/capmo/events/review"
+      coVerify(exactly = 1) { ctx.retrieval.retrieve(SessionStartRetrievalRequest("review a Capmo PR")) }
+    }
+
+    test("session_start requires a message") {
+      val ctx = newTools()
+
+      val result = ctx.tools.sessionStart(JsonObject(emptyMap()))
+
+      (result[ToolSchemas.KEY_STATUS] as JsonPrimitive).content shouldBe ToolSchemas.STATUS_INVALID_INPUT
+      (result[ToolSchemas.KEY_FIELD] as JsonPrimitive).content shouldBe ToolSchemas.KEY_MESSAGE
+      coVerify(exactly = 0) { ctx.retrieval.retrieve(any()) }
+    }
   })
 
 private data class VaultMcpToolsTestContext(
   val tools: VaultMcpTools,
   val repo: VaultRepository,
   val capture: VaultCaptureService,
+  val retrieval: SessionStartRetrievalService,
   val vaultRoot: Path,
 )

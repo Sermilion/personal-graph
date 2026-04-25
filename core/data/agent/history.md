@@ -1,5 +1,15 @@
 # core/data — history
 
+## [2026-04-25] session-start-retrieval (GRP-3)
+Areas: core/domain (SessionStartRetrievalService contract), core/data (retrieval engine), cli (session-start command), mcp-server (session_start tool), docs
+- `SessionStartRetrievalService` owns Stage 3 retrieval: loads `Braian.md` first, classifies the first substantive message deterministically, then returns loaded branches/nodes/skips/audit as the shared CLI/MCP report contract (reusable retrieval boundary)
+- `PersonalGraphSessionStartRetrievalService` uses existing `VaultPathResolver` containment and repository branch reads; retrieval policy is stricter than general reads: skip `people/`, skip all `staging/`, and exclude `emotional-states/` unless emotional/self-reflection terms match
+- Classification terms route to `domains/work/capmo`, `domains/personal`, `domains/creative`, or durable state branches for `general`; emotional terms add `emotional-states/` without broadening other branches
+- Pattern expansion follows wikilinks and `pattern_links` only under `patterns/`, de-dupes recursively, caps traversal at 64 pattern hubs, and audits missing/non-pattern links instead of failing retrieval
+- CLI `session-start` and MCP `session_start` are thin adapters over the domain service; non-MCP usage is documented in `docs/session-start-retrieval.md`
+Feature flag: N/A
+Acceptance criteria: 8/8 implemented
+
 ## [2026-04-25] consolidation (GRP-2)
 Areas: core/domain (ConsolidationService report contract, VaultRepository staging API, node metadata), core/data (consolidation engine, repository scan hardening, frontmatter mappers), cli (manual consolidate command), core/testing
 - `PersonalGraphVaultConsolidationService` owns Stage 2 Tier-3 promotion: scans `staging/observations/`, groups by normalized claim/context, graduates repeated sightings, merges equivalent staged duplicates, and deletes only processed staged sources (reusable consolidation boundary)

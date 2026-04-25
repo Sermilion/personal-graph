@@ -7,6 +7,8 @@ import com.sermilion.personalgraph.domain.layout.VaultLayout
 import com.sermilion.personalgraph.domain.layout.VaultPolicy
 import com.sermilion.personalgraph.domain.model.NodeId
 import com.sermilion.personalgraph.domain.repository.VaultRepository
+import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalRequest
+import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalService
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
@@ -22,6 +24,7 @@ class VaultMcpTools(
   private val pathResolver: VaultPathResolver,
   private val vaultRoot: Path,
   private val captureService: VaultCaptureService,
+  private val sessionStartRetrievalService: SessionStartRetrievalService,
 ) {
 
   suspend fun writeState(args: JsonObject): JsonObject = when (val parsed = parseWriteStateArgs(args)) {
@@ -87,6 +90,14 @@ class VaultMcpTools(
       put(ToolSchemas.KEY_STATUS, JsonPrimitive(ToolSchemas.STATUS_OK))
       put(ToolSchemas.KEY_NODES, items)
     }
+  }
+
+  suspend fun sessionStart(args: JsonObject): JsonObject {
+    val message = args.stringOrNull(ToolSchemas.KEY_MESSAGE)
+      ?: return invalidInputJson(ToolSchemas.KEY_MESSAGE, REASON_MISSING)
+    return sessionStartRetrievalService.retrieve(
+      SessionStartRetrievalRequest(firstSubstantiveMessage = message),
+    ).toJson()
   }
 
   private suspend fun readGatedNode(gate: ReadNodeGate.Allow): JsonObject {

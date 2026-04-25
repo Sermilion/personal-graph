@@ -86,4 +86,11 @@ internal object ToolSchemaBuilder {
     },
     required = listOf(ToolSchemas.KEY_BRANCH),
   )
+
+  fun sessionStartSchema(): ToolSchema = ToolSchema(
+    properties = buildJsonObject {
+      put(ToolSchemas.KEY_MESSAGE, ToolSchemaProperties.string())
+    },
+    required = listOf(ToolSchemas.KEY_MESSAGE),
+  )
 }
