@@ -24,6 +24,25 @@ object ToolSchemas {
   const val DESC_SESSION_START: String =
     "Load session-start context: Braian.md, classified domain subtree, and linked pattern hubs."
 
+  const val DESC_FIELD_STATE_ID: String =
+    "Node id. Accepts canonical plural prefix (e.g. state/roles/<leaf>), or a bare leaf which is " +
+      "routed via `category`. Singular-prefix forms (state/role/, state/preference/, state/fact/) " +
+      "are rejected — use the canonical plural form named in `expected`."
+  const val DESC_FIELD_NODE_ID: String =
+    "Node id; canonical form `<branch>/<leaf>` (e.g. domains/creative/events/<leaf> for episodes)."
+  const val DESC_FIELD_DATE: String =
+    "ISO-8601 instant in UTC, e.g. 2026-04-25T00:00:00Z. Date-only values are rejected."
+  const val DESC_FIELD_TARGET_PATH: String =
+    "Existing node id to re-route. Reads under people/ are blocked. Must parse as a valid node id."
+  const val DESC_FIELD_BRANCH: String =
+    "Branch path under the vault root, e.g. state/roles or domains/work/capmo. Reads under people/ are blocked."
+  const val DESC_FIELD_LINKS: String =
+    "Wikilink targets as node ids. Entries that fail to parse are silently dropped without error; " +
+      "canonical-prefix enforcement is not currently performed."
+  const val DESC_FIELD_PAYLOAD_KIND: String =
+    "Expected payload kind for the targeted node. Must match the actual node type or the call is " +
+      "rejected with invalid_input."
+
   const val KEY_ID: String = "id"
   const val KEY_MESSAGE: String = "message"
   const val KEY_TOPIC: String = "topic"
