@@ -15,7 +15,9 @@ dependencies {
 
   implementation(libs.kotlinx.coroutines.core)
   implementation(libs.kotlinx.serialization.json)
+  implementation(libs.kotlinx.datetime)
   implementation(libs.mcp.kotlin.sdk.server)
+  implementation(libs.clikt)
   implementation(libs.logback.classic)
   implementation(libs.kotlin.logging)
 

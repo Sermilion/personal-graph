@@ -6,7 +6,7 @@ Context about a person is currently locked inside individual AI tools. The same 
 
 ## Status
 
-Scaffold. The project builds end-to-end (Gradle 9.1, Kotlin 2.3, JDK 17) and both executables run, but the MCP server and consolidation CLI are placeholders — no real capture or retrieval yet. See [`.feature-spec/spec.md`](./.feature-spec/spec.md) for the full vision and phased roadmap.
+Stage 1 shipped. The CLI scaffolds an Obsidian-compatible vault on demand (`personal-graph init --vault <path>`) and the local MCP server exposes scoped read/write capture tools over stdio. Tier 1 capture (`write_state`, `write_episode`, `write_to_staging`), sensitivity routing (`flag_sensitive`, `list_pending_sensitive`), and scoped reads (`read_node`, `list_branch`) are working end-to-end. Consolidation, session-start retrieval, and proactive surfacing remain placeholders. See [`.feature-spec/spec.md`](./.feature-spec/spec.md) for the full vision and phased roadmap; per-stage progress lives in [`.feature-specs/STAGES.md`](./.feature-specs/STAGES.md).
 
 ## Design principles
 
@@ -60,21 +60,42 @@ Requires JDK 17. The Gradle wrapper handles everything else.
 
 ## Connecting your vault
 
-The vault is any directory on your disk that follows the layout above. Both executables take `--vault <path>` once wired up. For now, the MCP server and CLI print placeholder output; real capture and retrieval are in progress.
+The vault is any directory on your disk that follows the layout above; pass its absolute path as `--vault <path>` to both executables.
 
-Once Stage 1 lands:
+Build the runnable distributions:
 
-1. Create a directory for your vault (or point at an existing Obsidian vault).
-2. Seed `Braian.md` with a short orientation about yourself.
-3. Run `./gradlew :mcp-server:installDist` and register the produced binary with your AI tool as an MCP server pointing at your vault.
-4. Agents begin writing observations into typed branches during normal conversations.
+```bash
+./gradlew :cli:installDist :mcp-server:installDist
+```
+
+Scaffold a fresh vault (idempotent — never overwrites `Braian.md`):
+
+```bash
+cli/build/install/personal-graph-cli/bin/personal-graph-cli init --vault /absolute/path/to/your/vault
+```
+
+The CLI creates the directory layout (`state/...`, `domains/...`, `patterns/`, `emotional-states/`, `timeline/`, `staging/...`, `people/`) and seeds `Braian.md` with a short orientation note. Replace the `# TODO` block with a few sentences about yourself before pointing agents at it.
+
+Run the local MCP server over stdio:
+
+```bash
+mcp-server/build/install/personal-graph-mcp-server/bin/personal-graph-mcp-server --vault /absolute/path/to/your/vault
+```
+
+Register that binary with your AI tool's MCP configuration. The server exposes seven Stage 1 tools:
+
+- `write_state`, `write_episode`, `write_to_staging` — Tier 1 capture.
+- `flag_sensitive`, `list_pending_sensitive` — sensitivity routing for batch disposition.
+- `read_node`, `list_branch` — scoped reads. `people/` is read-blocked by default; reads outside the vault root or outside whitelisted branches are rejected.
+
+All log output goes to stderr; stdout is reserved for the MCP framing channel.
 
 ## Roadmap
 
-- **Stage 1 — vault + capture (MVP):** MCP server writes Tier 1 observations and episode nodes passively during agent conversations. Sensitivity flagging routes to `staging/sensitive/`.
-- **Stage 2 — consolidation:** standalone CLI promotes staged observations, extracts cross-cutting pattern hubs, annotates contradictions.
+- **Stage 1 — vault + capture (MVP) — shipped.** `personal-graph init` scaffolds the layout; the local MCP server writes Tier 1 observations and episode nodes passively during agent conversations; sensitivity flagging routes to `staging/sensitive/`.
+- **Stage 2 — consolidation (next):** standalone CLI promotes staged observations, extracts cross-cutting pattern hubs, annotates contradictions.
 - **Stage 3 — session-start retrieval:** agents load `Braian.md` + classified domain subtree + linked patterns at the start of every session.
-- **Stage 4 — proactive surfacing:** agents detect trigger conditions in-session and surface relevant prior context ("btw, you usually forget X around this point"). Gated behind 2+ months of Stages 1–3 in continuous use.
+- **Stage 4 — proactive surfacing:** agents detect trigger conditions in-session and surface relevant prior context ("btw, you usually forget X around this point"). Gated behind 2+ months of Stages 1-3 in continuous use.
 
 ## Contributing
 
