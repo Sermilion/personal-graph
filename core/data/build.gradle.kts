@@ -8,9 +8,12 @@ dependencies {
   api(project(":core:domain"))
 
   implementation(libs.kotlinx.serialization.core)
+  implementation(libs.kotlinx.serialization.json)
+  implementation(libs.kotlinx.coroutines.core)
   implementation(libs.kotlinx.datetime)
   implementation(libs.commonmark)
   implementation(libs.kaml)
+  implementation(libs.kotlin.logging)
 
   api(libs.kotlin.inject.runtime)
   ksp(libs.kotlin.inject.compiler)
@@ -19,5 +22,6 @@ dependencies {
   testImplementation(libs.kotest.assertions.core)
   testImplementation(libs.mockk)
   testImplementation(libs.kotlinx.coroutines.test)
+  testImplementation(libs.logback.classic)
   testImplementation(project(":core:testing"))
 }

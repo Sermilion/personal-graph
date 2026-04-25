@@ -1,9 +1,8 @@
 package com.sermilion.personalgraph.mcp
 
-import io.github.oshai.kotlinlogging.KotlinLogging
-
-private val logger = KotlinLogging.logger {}
+import com.github.ajalt.clikt.core.main
+import com.sermilion.personalgraph.mcp.cli.McpServerCli
 
 fun main(args: Array<String>) {
-  logger.info { "personal-graph MCP server starting — scaffold placeholder (args=${args.toList()})" }
+  McpServerCli().main(args)
 }
