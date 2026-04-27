@@ -56,6 +56,20 @@ data class PatternNode(
   val patternLinks: List<NodeId> = emptyList(),
 ) : VaultNode
 
+data class SubjectNode(
+  override val id: NodeId,
+  override val createdAt: Instant,
+  override val updatedAt: Instant,
+  override val body: String,
+  override val links: List<NodeId>,
+  val domain: String,
+  val subject: String,
+  val aliases: List<String> = emptyList(),
+  val evidenceCount: Int = 0,
+  val sourceIds: List<NodeId> = emptyList(),
+  val patternLinks: List<NodeId> = emptyList(),
+) : VaultNode
+
 data class EmotionalStateNode(
   override val id: NodeId,
   override val createdAt: Instant,

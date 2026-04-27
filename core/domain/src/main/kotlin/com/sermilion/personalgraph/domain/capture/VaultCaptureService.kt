@@ -53,6 +53,7 @@ enum class PayloadKind {
   State,
   Episode,
   Pattern,
+  Subject,
   EmotionalState,
 }
 
@@ -61,6 +62,8 @@ sealed interface CaptureResult {
     val id: NodeId,
     val backlinkId: NodeId? = null,
     val backlinkStatus: BacklinkStatus = BacklinkStatus.Skipped,
+    val subjectHubId: NodeId? = null,
+    val subjectHubStatus: SubjectHubStatus = SubjectHubStatus.Skipped,
   ) : CaptureResult
 
   data class PermissionDenied(val reason: String) : CaptureResult
@@ -74,6 +77,13 @@ sealed interface CaptureResult {
 
 enum class BacklinkStatus {
   Ok,
+  Failed,
+  Skipped,
+}
+
+enum class SubjectHubStatus {
+  Created,
+  Updated,
   Failed,
   Skipped,
 }

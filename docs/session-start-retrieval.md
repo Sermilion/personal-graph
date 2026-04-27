@@ -9,7 +9,7 @@ At session start:
 
 1. Load `Braian.md` first.
 2. Classify the first substantive user message.
-3. Load the matching domain subtree.
+3. Load the matching domain subtree, especially canonical `subjects/` hubs before broader evidence.
 4. Load pattern hubs linked from the loaded nodes.
 5. Report the classification, loaded branches, loaded nodes, skipped branches,
    and audit reasons.
@@ -36,8 +36,8 @@ Before answering the user, run:
 
 personal-graph-cli session-start --vault <vault> "<first substantive user message>"
 
-Read Braian.md first from the report, then the loaded domain nodes, then linked
-pattern nodes. Treat the audit lines as the explanation of why each branch was
-loaded. Do not read people/, staging/, or staging/sensitive/. Do not read
-emotional-states/ unless the report says emotional_context=true.
+Read Braian.md first from the report, then the loaded domain subject hubs and
+events, then linked pattern nodes. Treat the audit lines as the explanation of
+why each branch was loaded. Do not read people/, staging/, or staging/sensitive/.
+Do not read emotional-states/ unless the report says emotional_context=true.
 ```

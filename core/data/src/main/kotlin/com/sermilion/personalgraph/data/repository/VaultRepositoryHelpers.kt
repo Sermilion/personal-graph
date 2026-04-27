@@ -2,6 +2,7 @@ package com.sermilion.personalgraph.data.repository
 
 import com.sermilion.personalgraph.data.codec.MarkdownFrontmatterCodec
 import com.sermilion.personalgraph.data.path.VaultPathResolver
+import com.sermilion.personalgraph.domain.model.SubjectNode
 import com.sermilion.personalgraph.domain.model.VaultNode
 import io.github.oshai.kotlinlogging.KLogger
 import kotlinx.coroutines.currentCoroutineContext
@@ -15,6 +16,7 @@ import java.util.EnumSet
 
 internal const val MARKDOWN_EXTENSION_VALUE: String = ".md"
 internal const val MAX_VAULT_FILE_SIZE_BYTES: Long = 1L * 1024L * 1024L
+private val SUBJECT_KEY_NORMALIZE_REGEX: Regex = Regex("[^a-z0-9]+")
 
 internal fun createDirectoriesTracking(target: Path): List<Path> {
   val created = mutableListOf<Path>()
@@ -101,3 +103,32 @@ private fun decodeMarkdownFromFile(ctx: VaultDecodeContext, file: Path): VaultNo
   }
   return ctx.codec.decode(nodeId, Files.readString(file))
 }
+
+internal fun canonicalSubjectKey(value: String): String = value
+  .trim()
+  .lowercase()
+  .replace(SUBJECT_KEY_NORMALIZE_REGEX, "-")
+  .trim('-')
+  .ifBlank { "untitled" }
+
+internal fun subjectLookupKeys(
+  subject: String,
+  aliases: List<String> = emptyList(),
+  idValue: String? = null,
+): Set<String> = buildSet {
+  add(canonicalSubjectKey(subject))
+  aliases
+    .map(::canonicalSubjectKey)
+    .filterTo(this) { it.isNotBlank() }
+  idValue
+    ?.substringAfterLast('/')
+    ?.takeIf { it.isNotBlank() }
+    ?.let(::canonicalSubjectKey)
+    ?.let(::add)
+}
+
+internal fun SubjectNode.matchesSubjectLookup(keys: Set<String>): Boolean = subjectLookupKeys(
+  subject = subject,
+  aliases = aliases,
+  idValue = id.value,
+).any(keys::contains)

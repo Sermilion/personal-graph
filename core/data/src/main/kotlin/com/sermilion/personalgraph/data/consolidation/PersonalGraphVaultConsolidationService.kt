@@ -2,9 +2,13 @@ package com.sermilion.personalgraph.data.consolidation
 
 import com.sermilion.personalgraph.common.di.AppScope
 import com.sermilion.personalgraph.common.dispatcher.DispatcherProvider
+import com.sermilion.personalgraph.data.repository.canonicalSubjectKey
+import com.sermilion.personalgraph.domain.layout.VaultLayout
+import com.sermilion.personalgraph.domain.model.EpisodeNode
 import com.sermilion.personalgraph.domain.model.NodeId
 import com.sermilion.personalgraph.domain.model.PatternNode
 import com.sermilion.personalgraph.domain.model.StateNode
+import com.sermilion.personalgraph.domain.model.SubjectNode
 import com.sermilion.personalgraph.domain.model.VaultNode
 import com.sermilion.personalgraph.domain.repository.AnnotatedContradiction
 import com.sermilion.personalgraph.domain.repository.ConsolidationReport
@@ -12,12 +16,15 @@ import com.sermilion.personalgraph.domain.repository.ConsolidationRequest
 import com.sermilion.personalgraph.domain.repository.ConsolidationService
 import com.sermilion.personalgraph.domain.repository.GraduatedObservation
 import com.sermilion.personalgraph.domain.repository.MergedDuplicate
+import com.sermilion.personalgraph.domain.repository.MigratedLegacyNote
 import com.sermilion.personalgraph.domain.repository.PromotedPattern
 import com.sermilion.personalgraph.domain.repository.VaultRepository
 import com.sermilion.personalgraph.domain.repository.WriteOutcome
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.withContext
 import kotlinx.datetime.Clock
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
 import me.tatarka.inject.annotations.Inject
 
 @AppScope
@@ -45,11 +52,13 @@ class PersonalGraphVaultConsolidationService(
       durable = durable,
     )
     val patterns = promotePatterns(mergeDurableNodes(durable, promotion.promotedNodes))
+    val migrations = migrateLegacyDomainNotes(durable)
     ConsolidationReport(
       graduated = promotion.graduated,
       mergedDuplicates = promotion.mergedDuplicates,
       promotedPatterns = patterns,
       annotatedContradictions = contradictionScan.changed,
+      migratedLegacyNotes = migrations,
     )
   }
 
@@ -305,9 +314,120 @@ class PersonalGraphVaultConsolidationService(
   private suspend fun deleteStagedSources(sourceIds: List<NodeId>) {
     for (sourceId in sourceIds) {
       val outcome = repository.deleteNode(sourceId)
-      if (outcome !is WriteOutcome.Applied && outcome !is WriteOutcome.NotFound) {
+      if (outcome != WriteOutcome.Applied && outcome != WriteOutcome.NotFound) {
         logger.warn { "Failed to delete staged source=${sourceId.value} outcome=$outcome" }
       }
     }
   }
+
+  private suspend fun migrateLegacyDomainNotes(durable: List<VaultNode>): List<MigratedLegacyNote> {
+    val subjectsById = durable.filterIsInstance<SubjectNode>().associateBy { it.id.value }.toMutableMap()
+    val migrated = mutableListOf<MigratedLegacyNote>()
+    val legacyNotes = durable.filterIsInstance<EpisodeNode>().filter(::isLegacyDomainNote)
+    for (legacy in legacyNotes) {
+      migrateLegacyDomainNote(
+        legacy = legacy,
+        repository = repository,
+        clock = clock,
+        subjectsById = subjectsById,
+      )?.let(migrated::add)
+    }
+    return migrated
+  }
 }
+
+private suspend fun migrateLegacyDomainNote(
+  legacy: EpisodeNode,
+  repository: VaultRepository,
+  clock: Clock,
+  subjectsById: MutableMap<String, SubjectNode>,
+): MigratedLegacyNote? {
+  val targetId = NodeId(VaultLayout.subjectHub(legacy.domain, canonicalSubjectKey(legacy.topic)))
+  val existing = subjectsById[targetId.value] ?: repository.findNode(targetId) as? SubjectNode
+  val next = existing?.mergeLegacyNote(legacy, clock) ?: newSubjectHubFromLegacyNote(legacy, targetId, clock)
+  if (repository.writeNode(next) != WriteOutcome.Applied) return null
+  val deleteOutcome = repository.deleteNode(legacy.id)
+  if (deleteOutcome != WriteOutcome.Applied && deleteOutcome != WriteOutcome.NotFound) return null
+  subjectsById[next.id.value] = next
+  return MigratedLegacyNote(
+    nodeId = next.id,
+    sourceIds = listOf(legacy.id),
+    migratedFrom = legacy.id,
+  )
+}
+
+private fun newSubjectHubFromLegacyNote(
+  legacy: EpisodeNode,
+  targetId: NodeId,
+  clock: Clock,
+): SubjectNode = SubjectNode(
+  id = targetId,
+  createdAt = legacy.createdAt,
+  updatedAt = clock.now(),
+  body = buildString {
+    appendLine("## Summary")
+    appendLine(firstMeaningfulLine(legacy.body) ?: "Migrated legacy note for ${legacy.topic}.")
+    appendLine()
+    appendLine("## Evidence")
+    append(legacyEvidenceEntry(legacy))
+    val trimmedBody = legacy.body.trim()
+    if (trimmedBody.isNotEmpty()) {
+      appendLine()
+      appendLine("## Imported context")
+      appendLine(trimmedBody)
+    }
+  },
+  links = mergeNodeIds(legacy.links, listOf(legacy.id)),
+  domain = legacy.domain,
+  subject = canonicalSubjectKey(legacy.topic),
+  aliases = listOfNotNull(legacy.topic.takeUnless { canonicalSubjectKey(it) == canonicalSubjectKey(legacy.topic) }),
+  evidenceCount = 1,
+  sourceIds = listOf(legacy.id),
+)
+
+private fun SubjectNode.mergeLegacyNote(legacy: EpisodeNode, clock: Clock): SubjectNode {
+  val nextBody = appendLegacyEvidence(body, legacy)
+  val nextAliases = (aliases + legacy.topic)
+    .map(String::trim)
+    .filter { it.isNotEmpty() && canonicalSubjectKey(it) != subject }
+    .distinct()
+  return copy(
+    updatedAt = clock.now(),
+    body = nextBody,
+    links = mergeNodeIds(links, legacy.links + legacy.id),
+    aliases = nextAliases,
+    evidenceCount = evidenceCount + sourceIds.count { it.value == legacy.id.value }.let { if (it > 0) 0 else 1 },
+    sourceIds = mergeNodeIds(sourceIds, listOf(legacy.id)),
+  )
+}
+
+private fun appendLegacyEvidence(body: String, legacy: EpisodeNode): String {
+  val entry = legacyEvidenceEntry(legacy).trimEnd()
+  val trimmed = body.trimEnd()
+  if (trimmed.contains(entry)) return body
+  val evidenceHeader = "## Evidence"
+  val contextHeader = "## Imported context"
+  val importedContext = legacy.body.trim()
+  val withEvidence = when {
+    trimmed.isEmpty() -> "$evidenceHeader\n$entry\n"
+    trimmed.contains(evidenceHeader) -> "$trimmed\n$entry\n"
+    else -> "$trimmed\n\n$evidenceHeader\n$entry\n"
+  }
+  return if (importedContext.isEmpty()) {
+    withEvidence
+  } else if (withEvidence.contains(importedContext)) {
+    withEvidence
+  } else {
+    "${withEvidence.trimEnd()}\n\n$contextHeader\n$importedContext\n"
+  }
+}
+
+private fun legacyEvidenceEntry(legacy: EpisodeNode): String {
+  val date = legacy.date.toLocalDateTime(TimeZone.UTC).date.toString()
+  val summary = firstMeaningfulLine(legacy.body)?.let { " — $it" }.orEmpty()
+  return "- $date: migrated from `${legacy.id.value}`$summary\n"
+}
+
+private fun firstMeaningfulLine(body: String): String? = body.lineSequence()
+  .map(String::trim)
+  .firstOrNull { it.isNotEmpty() }

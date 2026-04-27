@@ -6,6 +6,7 @@ import com.sermilion.personalgraph.domain.model.EpisodeNode
 import com.sermilion.personalgraph.domain.model.NodeId
 import com.sermilion.personalgraph.domain.model.PatternNode
 import com.sermilion.personalgraph.domain.model.StateNode
+import com.sermilion.personalgraph.domain.model.SubjectNode
 import com.sermilion.personalgraph.domain.model.VaultNode
 import java.security.MessageDigest
 
@@ -16,6 +17,7 @@ internal fun VaultNode.withContradiction(sourceId: NodeId, reason: String): Vaul
     is StateNode -> copy(body = nextBody, contradictedBy = contradictedBy)
     is EpisodeNode -> copy(body = nextBody, contradictedBy = contradictedBy)
     is PatternNode -> copy(body = nextBody, contradictedBy = contradictedBy)
+    is SubjectNode -> copy(body = nextBody)
     is EmotionalStateNode -> copy(body = nextBody, contradictedBy = contradictedBy)
   }
 }
@@ -91,6 +93,7 @@ private fun VaultNode.contradictedByIds(): List<NodeId> = when (this) {
   is StateNode -> contradictedBy
   is EpisodeNode -> contradictedBy
   is PatternNode -> contradictedBy
+  is SubjectNode -> emptyList()
   is EmotionalStateNode -> contradictedBy
 }
 
@@ -107,6 +110,7 @@ private fun appendContradictionBody(body: String, sourceId: NodeId, reason: Stri
 private fun nodeSourceIds(node: VaultNode): List<NodeId> = when (node) {
   is StateNode -> node.sourceIds
   is PatternNode -> node.sourceIds
+  is SubjectNode -> node.sourceIds
   else -> emptyList()
 }
 
@@ -116,6 +120,7 @@ private fun domainFromNodeId(id: NodeId): String? {
   return withoutPrefix
     .substringBefore("/events/")
     .substringBefore("/notes/")
+    .substringBefore("/subjects/")
     .takeIf { it.isNotBlank() && it != withoutPrefix }
 }
 

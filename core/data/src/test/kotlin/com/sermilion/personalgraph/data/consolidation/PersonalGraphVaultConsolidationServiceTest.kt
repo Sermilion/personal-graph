@@ -9,6 +9,7 @@ import com.sermilion.personalgraph.domain.model.NodeId
 import com.sermilion.personalgraph.domain.model.PatternNode
 import com.sermilion.personalgraph.domain.model.StateCategory
 import com.sermilion.personalgraph.domain.model.StateNode
+import com.sermilion.personalgraph.domain.model.SubjectNode
 import com.sermilion.personalgraph.domain.model.VaultNode
 import com.sermilion.personalgraph.domain.repository.VaultRepository
 import com.sermilion.personalgraph.domain.repository.WriteOutcome
@@ -285,6 +286,24 @@ class PersonalGraphVaultConsolidationServiceTest :
       Files.exists(harness.root.resolve("${VaultLayout.BRANCH_STAGING_SENSITIVE}/compact-summary.md")) shouldBe true
       Files.exists(harness.root.resolve("${VaultLayout.BRANCH_PEOPLE}/compact-summary.md")) shouldBe true
     }
+
+    test("migrates legacy domain notes into canonical subject hubs") {
+      val harness = newHarness()
+      val legacy = VaultNodeFixtures.episodeNode().copy(
+        id = NodeId("domains/work/capmo/notes/build-pipeline"),
+        topic = "Build Pipeline",
+        body = "Legacy note details.\nSecond line.\n",
+      )
+      harness.repository.writeNode(legacy) shouldBe WriteOutcome.Applied
+
+      val report = harness.service.consolidate()
+
+      report.migratedLegacyNotes.shouldHaveSize(1)
+      report.migratedLegacyNotes.first().migratedFrom shouldBe legacy.id
+      harness.repository.findNode(NodeId("domains/work/capmo/subjects/build-pipeline"))
+        .shouldBeInstanceOf<SubjectNode>()
+      harness.repository.findNode(legacy.id) shouldBe null
+    }
   })
 
 private data class ConsolidationHarness(
@@ -332,6 +351,14 @@ private class PatternFallbackRepository(
   }
 
   override suspend fun listStagedObservations(): List<StateNode> = stagedNodes
+
+  override suspend fun listSubjectHubs(domain: String): List<SubjectNode> = emptyList()
+
+  override suspend fun findSubjectHub(
+    domain: String,
+    subjectKey: String,
+    aliases: List<String>,
+  ): SubjectNode? = null
 
   override suspend fun writeNode(node: VaultNode): WriteOutcome {
     writtenNodes.add(node)

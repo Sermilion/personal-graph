@@ -4,6 +4,7 @@ import com.sermilion.personalgraph.data.model.EmotionalStateNodeFrontmatterDataM
 import com.sermilion.personalgraph.data.model.EpisodeNodeFrontmatterDataModel
 import com.sermilion.personalgraph.data.model.PatternNodeFrontmatterDataModel
 import com.sermilion.personalgraph.data.model.StateNodeFrontmatterDataModel
+import com.sermilion.personalgraph.data.model.SubjectNodeFrontmatterDataModel
 import com.sermilion.personalgraph.domain.model.Confidence
 import com.sermilion.personalgraph.domain.model.EmotionMarker
 import com.sermilion.personalgraph.domain.model.EmotionalStateNode
@@ -14,6 +15,7 @@ import com.sermilion.personalgraph.domain.model.NodeId
 import com.sermilion.personalgraph.domain.model.PatternNode
 import com.sermilion.personalgraph.domain.model.StateCategory
 import com.sermilion.personalgraph.domain.model.StateNode
+import com.sermilion.personalgraph.domain.model.SubjectNode
 
 object VaultNodeMappers {
 
@@ -175,6 +177,41 @@ object VaultNodeMappers {
     sourceIds = parseNodeIds(frontmatter.sourceIds),
     patternLinks = parseNodeIds(frontmatter.patternLinks),
   )
+
+  fun toSubjectFrontmatter(node: SubjectNode): SubjectNodeFrontmatterDataModel = SubjectNodeFrontmatterDataModel(
+    domain = node.domain,
+    subject = node.subject,
+    created = node.createdAt.toFrontmatterLocalDate(),
+    updated = node.updatedAt.toFrontmatterLocalDate(),
+    linked = mergeLinks(node.links, node.patternLinks).map { wrapWikilink(it.value) },
+    aliases = node.aliases,
+    evidenceCount = node.evidenceCount,
+    sourceIds = node.sourceIds.map { it.value },
+    patternLinks = node.patternLinks.map { it.value },
+  )
+
+  fun fromSubjectFrontmatter(
+    id: NodeId,
+    frontmatter: SubjectNodeFrontmatterDataModel,
+    body: String,
+    bodyLinks: List<NodeId>,
+  ): SubjectNode {
+    val frontmatterLinks = frontmatter.linked.mapNotNull { unwrapWikilink(it) }
+    val mergedLinks = mergeLinks(frontmatterLinks, bodyLinks)
+    return SubjectNode(
+      id = id,
+      createdAt = frontmatter.created.atStartOfDayUtc(),
+      updatedAt = frontmatter.updated.atStartOfDayUtc(),
+      body = body,
+      links = mergedLinks,
+      domain = frontmatter.domain,
+      subject = frontmatter.subject,
+      aliases = frontmatter.aliases,
+      evidenceCount = frontmatter.evidenceCount,
+      sourceIds = parseNodeIds(frontmatter.sourceIds),
+      patternLinks = parseNodeIds(frontmatter.patternLinks),
+    )
+  }
 
   fun toEmotionalStateFrontmatter(
     node: EmotionalStateNode,

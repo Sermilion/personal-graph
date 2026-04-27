@@ -79,6 +79,7 @@ internal fun parsePayloadKind(raw: String): PayloadKind? = when (raw.lowercase()
   ToolSchemas.PAYLOAD_KIND_STATE -> PayloadKind.State
   ToolSchemas.PAYLOAD_KIND_EPISODE -> PayloadKind.Episode
   ToolSchemas.PAYLOAD_KIND_PATTERN -> PayloadKind.Pattern
+  ToolSchemas.PAYLOAD_KIND_SUBJECT -> PayloadKind.Subject
   ToolSchemas.PAYLOAD_KIND_EMOTIONAL_STATE -> PayloadKind.EmotionalState
   else -> null
 }

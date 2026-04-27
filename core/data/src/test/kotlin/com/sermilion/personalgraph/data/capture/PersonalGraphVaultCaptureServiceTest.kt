@@ -3,17 +3,23 @@ package com.sermilion.personalgraph.data.capture
 import com.sermilion.personalgraph.domain.capture.CaptureResult
 import com.sermilion.personalgraph.domain.capture.FlagSensitiveArgs
 import com.sermilion.personalgraph.domain.capture.PayloadKind
+import com.sermilion.personalgraph.domain.capture.WriteEpisodeArgs
 import com.sermilion.personalgraph.domain.capture.WriteStateArgs
 import com.sermilion.personalgraph.domain.layout.VaultLayout
 import com.sermilion.personalgraph.domain.model.Confidence
+import com.sermilion.personalgraph.domain.model.EpisodeNode
+import com.sermilion.personalgraph.domain.model.EpisodeType
+import com.sermilion.personalgraph.domain.model.Intensity
 import com.sermilion.personalgraph.domain.model.NodeId
 import com.sermilion.personalgraph.domain.model.StateCategory
 import com.sermilion.personalgraph.domain.model.StateNode
+import com.sermilion.personalgraph.domain.model.SubjectNode
 import com.sermilion.personalgraph.domain.repository.VaultRepository
 import com.sermilion.personalgraph.domain.repository.WriteOutcome
 import com.sermilion.personalgraph.testing.VaultNodeFixtures
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldContain
 import io.kotest.matchers.types.shouldBeInstanceOf
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -298,5 +304,101 @@ class PersonalGraphVaultCaptureServiceTest :
       result.field shouldBe "id"
       result.expected shouldBe "state/roles/foo"
       coVerify(exactly = 0) { repo.writeNode(any()) }
+    }
+
+    test("writeEpisode creates a canonical subject hub and timeline stub") {
+      val (service, repo) = newService()
+      val captured = mutableListOf<com.sermilion.personalgraph.domain.model.VaultNode>()
+      coEvery { repo.writeNode(capture(captured)) } returns WriteOutcome.Applied
+      coEvery { repo.findSubjectHub(any(), any(), any()) } returns null
+
+      val result = service.writeEpisode(
+        WriteEpisodeArgs(
+          id = "design-review",
+          date = VaultNodeFixtures.episodeInstant,
+          episodeType = EpisodeType.Decision,
+          domain = "work/capmo",
+          topic = "Build Pipeline",
+          intensity = Intensity.Medium,
+          body = "Settled on one deployment workflow.\n",
+          linked = emptyList(),
+          sensitive = false,
+        ),
+      )
+
+      result.shouldBeInstanceOf<CaptureResult.Created>()
+      result.id.value shouldBe "domains/work/capmo/events/design-review"
+      result.subjectHubId?.value shouldBe "domains/work/capmo/subjects/build-pipeline"
+      result.backlinkId?.value shouldBe "timeline/2026-04/2026-04-24-build-pipeline"
+      result.subjectHubStatus.name shouldBe "Created"
+      captured.filterIsInstance<SubjectNode>().single().body shouldBe
+        (
+          "## Summary\nCanonical subject hub for Build Pipeline.\n\n## Evidence\n" +
+            "- 2026-04-24: [[domains/work/capmo/events/design-review]]" +
+            " — Settled on one deployment workflow.\n"
+          )
+      captured.filterIsInstance<EpisodeNode>().last().links.map { it.value } shouldBe listOf(
+        "domains/work/capmo/events/design-review",
+        "domains/work/capmo/subjects/build-pipeline",
+      )
+    }
+
+    test("writeEpisode appends evidence to an existing subject hub before writing timeline stub") {
+      val (service, repo) = newService()
+      val existing = VaultNodeFixtures.subjectNode().copy(
+        id = NodeId("domains/work/capmo/subjects/build-pipeline"),
+        subject = "build-pipeline",
+        body =
+        "## Summary\nExisting hub.\n\n## Evidence\n" +
+          "- 2026-04-23: [[domains/work/capmo/events/older]] — Older evidence.\n",
+        evidenceCount = 1,
+        sourceIds = listOf(NodeId("domains/work/capmo/events/older")),
+      )
+      val captured = mutableListOf<com.sermilion.personalgraph.domain.model.VaultNode>()
+      coEvery { repo.findSubjectHub("work/capmo", "Build Pipeline", any()) } returns existing
+      coEvery { repo.writeNode(capture(captured)) } returns WriteOutcome.Applied
+
+      val result = service.writeEpisode(
+        WriteEpisodeArgs(
+          id = "design-review",
+          date = VaultNodeFixtures.episodeInstant,
+          episodeType = EpisodeType.Decision,
+          domain = "work/capmo",
+          topic = "Build Pipeline",
+          intensity = Intensity.Medium,
+          body = "Settled on one deployment workflow.\n",
+          linked = emptyList(),
+          sensitive = false,
+        ),
+      )
+
+      result.shouldBeInstanceOf<CaptureResult.Created>()
+      result.subjectHubStatus.name shouldBe "Updated"
+      val writtenSubject = captured.filterIsInstance<SubjectNode>().single()
+      writtenSubject.evidenceCount shouldBe 2
+      writtenSubject.body shouldContain "[[domains/work/capmo/events/design-review]]"
+    }
+
+    test("writeEpisode keeps timeline stub ids keyed by topic slug for compatibility") {
+      val (service, repo) = newService()
+      coEvery { repo.writeNode(any()) } returns WriteOutcome.Applied
+      coEvery { repo.findSubjectHub(any(), any(), any()) } returns null
+
+      val result = service.writeEpisode(
+        WriteEpisodeArgs(
+          id = "internal-ticket-1234",
+          date = VaultNodeFixtures.episodeInstant,
+          episodeType = EpisodeType.Decision,
+          domain = "work/capmo",
+          topic = "Build Pipeline",
+          intensity = Intensity.Medium,
+          body = "Settled on one deployment workflow.\n",
+          linked = emptyList(),
+          sensitive = false,
+        ),
+      )
+
+      result.shouldBeInstanceOf<CaptureResult.Created>()
+      result.backlinkId?.value shouldBe "timeline/2026-04/2026-04-24-build-pipeline"
     }
   })

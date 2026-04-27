@@ -11,6 +11,7 @@ data class ConsolidationReport(
   val mergedDuplicates: List<MergedDuplicate> = emptyList(),
   val promotedPatterns: List<PromotedPattern> = emptyList(),
   val annotatedContradictions: List<AnnotatedContradiction> = emptyList(),
+  val migratedLegacyNotes: List<MigratedLegacyNote> = emptyList(),
 )
 
 data class ConsolidationRequest(
@@ -47,4 +48,10 @@ data class AnnotatedContradiction(
   override val sourceIds: List<NodeId>,
   val contradictedNodeId: NodeId,
   val reason: String,
+) : ConsolidationChange
+
+data class MigratedLegacyNote(
+  override val nodeId: NodeId,
+  override val sourceIds: List<NodeId>,
+  val migratedFrom: NodeId,
 ) : ConsolidationChange

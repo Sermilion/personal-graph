@@ -2,10 +2,12 @@ package com.sermilion.personalgraph.mcp.tools
 
 import com.sermilion.personalgraph.domain.capture.BacklinkStatus
 import com.sermilion.personalgraph.domain.capture.CaptureResult
+import com.sermilion.personalgraph.domain.capture.SubjectHubStatus
 import com.sermilion.personalgraph.domain.model.EmotionalStateNode
 import com.sermilion.personalgraph.domain.model.EpisodeNode
 import com.sermilion.personalgraph.domain.model.PatternNode
 import com.sermilion.personalgraph.domain.model.StateNode
+import com.sermilion.personalgraph.domain.model.SubjectNode
 import com.sermilion.personalgraph.domain.model.VaultNode
 import com.sermilion.personalgraph.domain.retrieval.RetrievalAuditEntry
 import com.sermilion.personalgraph.domain.retrieval.RetrievalClassification
@@ -40,12 +42,16 @@ internal fun nodeJson(node: VaultNode): JsonObject = buildJsonObject {
   put(ToolSchemas.KEY_BODY, JsonPrimitive(node.body))
   val linksKey = when (node) {
     is EpisodeNode, is EmotionalStateNode -> ToolSchemas.KEY_LINKED
-    is StateNode, is PatternNode -> ToolSchemas.KEY_LINKS
+    is StateNode, is PatternNode, is SubjectNode -> ToolSchemas.KEY_LINKS
   }
   put(
     linksKey,
     buildJsonArray { for (link in node.links) add(JsonPrimitive(link.value)) },
   )
+  if (node is SubjectNode) {
+    put(ToolSchemas.KEY_DOMAIN, JsonPrimitive(node.domain))
+    put(ToolSchemas.KEY_SUBJECT, JsonPrimitive(node.subject))
+  }
 }
 
 internal fun SessionStartRetrievalReport.toJson(): JsonObject = buildJsonObject {
@@ -165,6 +171,14 @@ private fun createdToJson(result: CaptureResult.Created): JsonObject = buildJson
     BacklinkStatus.Skipped -> ToolSchemas.BACKLINK_STATUS_SKIPPED
   }
   put(ToolSchemas.KEY_BACKLINK_STATUS, JsonPrimitive(backlinkStatusValue))
+  result.subjectHubId?.let { put(ToolSchemas.KEY_SUBJECT_HUB_PATH, JsonPrimitive(it.value)) }
+  val subjectHubStatusValue = when (result.subjectHubStatus) {
+    SubjectHubStatus.Created -> ToolSchemas.SUBJECT_HUB_STATUS_CREATED
+    SubjectHubStatus.Updated -> ToolSchemas.SUBJECT_HUB_STATUS_UPDATED
+    SubjectHubStatus.Failed -> ToolSchemas.SUBJECT_HUB_STATUS_FAILED
+    SubjectHubStatus.Skipped -> ToolSchemas.SUBJECT_HUB_STATUS_SKIPPED
+  }
+  put(ToolSchemas.KEY_SUBJECT_HUB_STATUS, JsonPrimitive(subjectHubStatusValue))
   if (result.backlinkStatus == BacklinkStatus.Failed) {
     put(ToolSchemas.KEY_REASON, JsonPrimitive(BACKLINK_FAILED_REASON))
   }

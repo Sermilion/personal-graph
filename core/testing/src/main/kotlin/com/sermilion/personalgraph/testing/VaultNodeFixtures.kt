@@ -10,6 +10,7 @@ import com.sermilion.personalgraph.domain.model.NodeId
 import com.sermilion.personalgraph.domain.model.PatternNode
 import com.sermilion.personalgraph.domain.model.StateCategory
 import com.sermilion.personalgraph.domain.model.StateNode
+import com.sermilion.personalgraph.domain.model.SubjectNode
 import kotlinx.datetime.Instant
 
 object VaultNodeFixtures {
@@ -70,6 +71,26 @@ object VaultNodeFixtures {
     contradictedBy = contradictedBy,
   )
 
+  fun subjectNode(
+    id: String = "domains/work/capmo/subjects/build-pipeline",
+    body: String =
+      "## Summary\nBuild pipeline ownership is shared.\n\n## Evidence\n- 2026-04-24: paired on deployment fixes.\n",
+    domain: String = "work/capmo",
+    subject: String = "build-pipeline",
+    aliases: List<String> = listOf("deploy-pipeline"),
+    links: List<NodeId> = listOf(NodeId("domains/work/capmo/events/sample-episode")),
+  ): SubjectNode = SubjectNode(
+    id = NodeId(id),
+    createdAt = sampleInstant,
+    updatedAt = sampleInstant,
+    body = body,
+    links = links,
+    domain = domain,
+    subject = subject,
+    aliases = aliases,
+    evidenceCount = 1,
+  )
+
   fun emotionalStateNode(): EmotionalStateNode = EmotionalStateNode(
     id = NodeId("emotional-states/2026-04-24-debug-frustration"),
     createdAt = emotionalInstant,
@@ -120,6 +141,25 @@ domains_seen_in:
 contradicted_by: []
 ---
 Body referencing [[domains/work/capmo/events/sample-episode]].
+"""
+
+  const val SUBJECT_NODE_MARKDOWN: String = """---
+type: "subject"
+domain: "work/capmo"
+subject: "build-pipeline"
+created: "2026-04-24"
+updated: "2026-04-24"
+linked:
+  - "[[domains/work/capmo/events/sample-episode]]"
+aliases:
+  - "deploy-pipeline"
+evidence_count: 1
+---
+## Summary
+Build pipeline ownership is shared.
+
+## Evidence
+- 2026-04-24: paired on deployment fixes.
 """
 
   const val EMOTIONAL_STATE_NODE_MARKDOWN: String = """---
