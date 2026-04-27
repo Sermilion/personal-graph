@@ -9,11 +9,13 @@ import com.sermilion.personalgraph.data.model.EmotionalStateNodeFrontmatterDataM
 import com.sermilion.personalgraph.data.model.EpisodeNodeFrontmatterDataModel
 import com.sermilion.personalgraph.data.model.PatternNodeFrontmatterDataModel
 import com.sermilion.personalgraph.data.model.StateNodeFrontmatterDataModel
+import com.sermilion.personalgraph.data.model.SubjectNodeFrontmatterDataModel
 import com.sermilion.personalgraph.domain.model.EmotionalStateNode
 import com.sermilion.personalgraph.domain.model.EpisodeNode
 import com.sermilion.personalgraph.domain.model.NodeId
 import com.sermilion.personalgraph.domain.model.PatternNode
 import com.sermilion.personalgraph.domain.model.StateNode
+import com.sermilion.personalgraph.domain.model.SubjectNode
 import com.sermilion.personalgraph.domain.model.VaultNode
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.serialization.SerializationException
@@ -39,6 +41,7 @@ class MarkdownFrontmatterCodec {
     is StateNode -> renderEncoded(yaml.encodeToString(VaultNodeMappers.toStateFrontmatter(node)), node.body)
     is EpisodeNode -> renderEncoded(yaml.encodeToString(VaultNodeMappers.toEpisodeFrontmatter(node)), node.body)
     is PatternNode -> renderEncoded(yaml.encodeToString(VaultNodeMappers.toPatternFrontmatter(node)), node.body)
+    is SubjectNode -> renderEncoded(yaml.encodeToString(VaultNodeMappers.toSubjectFrontmatter(node)), node.body)
     is EmotionalStateNode -> renderEncoded(
       yaml.encodeToString(VaultNodeMappers.toEmotionalStateFrontmatter(node)),
       node.body,
@@ -86,6 +89,10 @@ class MarkdownFrontmatterCodec {
       VaultNodeType.Pattern -> {
         val fm = yaml.decodeFromString<PatternNodeFrontmatterDataModel>(frontmatterText)
         VaultNodeMappers.fromPatternFrontmatter(id, fm, body, bodyLinks)
+      }
+      VaultNodeType.Subject -> {
+        val fm = yaml.decodeFromString<SubjectNodeFrontmatterDataModel>(frontmatterText)
+        VaultNodeMappers.fromSubjectFrontmatter(id, fm, body, bodyLinks)
       }
       VaultNodeType.EmotionalState -> {
         val fm = yaml.decodeFromString<EmotionalStateNodeFrontmatterDataModel>(frontmatterText)

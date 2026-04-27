@@ -31,11 +31,14 @@ class ConsolidateCommand : CliktCommand(name = COMMAND_NAME) {
     appendLine("merged=${report.mergedDuplicates.size}")
     appendLine("promoted_patterns=${report.promotedPatterns.size}")
     appendLine("annotated_contradictions=${report.annotatedContradictions.size}")
+    appendLine("migrated_legacy_notes=${report.migratedLegacyNotes.size}")
     appendIds("graduated_ids", report.graduated.map { it.nodeId })
     appendIds("merged_into_ids", report.mergedDuplicates.map { it.mergedInto })
     appendIds("pattern_ids", report.promotedPatterns.map { it.nodeId })
     appendIds("contradiction_ids", report.annotatedContradictions.map { it.nodeId })
     appendIds("contradiction_source_ids", report.annotatedContradictions.flatMap { it.sourceIds })
+    appendIds("migrated_subject_hub_ids", report.migratedLegacyNotes.map { it.nodeId })
+    appendIds("migrated_source_ids", report.migratedLegacyNotes.flatMap { it.sourceIds })
   }.trimEnd()
 
   private fun StringBuilder.appendIds(label: String, ids: List<NodeId>) {

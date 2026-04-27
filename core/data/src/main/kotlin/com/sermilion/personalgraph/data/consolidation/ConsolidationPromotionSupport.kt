@@ -46,6 +46,8 @@ internal fun mergeDurableNodes(durable: List<VaultNode>, promotedNodes: List<Sta
   return durable.filterNot { promotedById.containsKey(it.id.value) } + promotedNodes
 }
 
+internal fun isLegacyDomainNote(node: VaultNode): Boolean = node.id.value.contains("/notes/")
+
 internal fun patternChanged(existing: PatternNode?, next: PatternNode): Boolean = existing == null ||
   existing.evidenceCount != next.evidenceCount ||
   existing.domainsSeenIn != next.domainsSeenIn ||

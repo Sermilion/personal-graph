@@ -9,6 +9,7 @@ import com.sermilion.personalgraph.domain.model.EpisodeNode
 import com.sermilion.personalgraph.domain.model.NodeId
 import com.sermilion.personalgraph.domain.model.PatternNode
 import com.sermilion.personalgraph.domain.model.StateNode
+import com.sermilion.personalgraph.domain.model.SubjectNode
 import com.sermilion.personalgraph.domain.model.VaultNode
 import com.sermilion.personalgraph.domain.repository.VaultRepository
 import com.sermilion.personalgraph.domain.retrieval.RetrievalAuditEntry
@@ -318,6 +319,7 @@ class PersonalGraphSessionStartRetrievalService(
     is StateNode -> links + patternLinks
     is EpisodeNode -> links + patternLinks
     is PatternNode -> links + patternLinks
+    is SubjectNode -> links + patternLinks
     is EmotionalStateNode -> links + patternLinks
   }
     .filter { it.value.startsWith("${VaultLayout.BRANCH_PATTERNS}/") }
@@ -336,6 +338,7 @@ class PersonalGraphSessionStartRetrievalService(
     is StateNode -> patternLinks
     is EpisodeNode -> patternLinks
     is PatternNode -> patternLinks
+    is SubjectNode -> patternLinks
     is EmotionalStateNode -> patternLinks
   }.distinctBy { it.value }
 

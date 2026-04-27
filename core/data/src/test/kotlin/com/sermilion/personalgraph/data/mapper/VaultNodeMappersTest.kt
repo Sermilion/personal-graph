@@ -33,4 +33,16 @@ class VaultNodeMappersTest :
       frontmatter.created shouldBe LocalDate(2026, 4, 24)
       frontmatter.lastObserved shouldBe LocalDate(2026, 4, 23)
     }
+
+    test("SubjectNode created/updated convert through UTC timezone") {
+      val source = VaultNodeFixtures.subjectNode().copy(
+        createdAt = Instant.parse("2026-04-24T22:00:00Z"),
+        updatedAt = Instant.parse("2026-04-25T01:00:00Z"),
+      )
+
+      val frontmatter = VaultNodeMappers.toSubjectFrontmatter(source)
+
+      frontmatter.created shouldBe LocalDate(2026, 4, 24)
+      frontmatter.updated shouldBe LocalDate(2026, 4, 25)
+    }
   })

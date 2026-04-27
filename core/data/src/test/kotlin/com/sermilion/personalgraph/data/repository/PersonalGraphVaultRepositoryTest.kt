@@ -5,6 +5,7 @@ import com.sermilion.personalgraph.data.path.VaultPathResolver
 import com.sermilion.personalgraph.domain.layout.VaultLayout
 import com.sermilion.personalgraph.domain.model.NodeId
 import com.sermilion.personalgraph.domain.model.StateNode
+import com.sermilion.personalgraph.domain.model.SubjectNode
 import com.sermilion.personalgraph.domain.repository.WriteOutcome
 import com.sermilion.personalgraph.testing.TestDispatcherProvider
 import com.sermilion.personalgraph.testing.VaultNodeFixtures
@@ -205,6 +206,34 @@ class PersonalGraphVaultRepositoryTest :
       )
 
       repo.listStagedObservations() shouldBe emptyList()
+    }
+
+    test("findSubjectHub reuses canonical subject note by alias") {
+      val (repo, _) = newRepository()
+      val subject = VaultNodeFixtures.subjectNode()
+      repo.writeNode(subject) shouldBe WriteOutcome.Applied
+
+      val found = repo.findSubjectHub("work/capmo", "deploy-pipeline")
+
+      found.shouldNotBeNull()
+      found.shouldBeInstanceOf<SubjectNode>()
+      found.id shouldBe subject.id
+    }
+
+    test("listSubjectHubs returns only subject notes in the domain branch") {
+      val (repo, _) = newRepository()
+      val first = VaultNodeFixtures.subjectNode()
+      val second = VaultNodeFixtures.subjectNode(
+        id = "domains/work/capmo/subjects/release-process",
+        subject = "release-process",
+      )
+      repo.writeNode(first) shouldBe WriteOutcome.Applied
+      repo.writeNode(second) shouldBe WriteOutcome.Applied
+      repo.writeNode(VaultNodeFixtures.episodeNode()) shouldBe WriteOutcome.Applied
+
+      val subjects = repo.listSubjectHubs("work/capmo")
+
+      subjects.map { it.id.value } shouldContainExactlyInAnyOrder listOf(first.id.value, second.id.value)
     }
 
     test("moveNode returns Conflict when target already exists") {

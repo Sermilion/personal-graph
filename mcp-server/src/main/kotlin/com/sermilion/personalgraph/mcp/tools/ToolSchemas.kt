@@ -14,7 +14,8 @@ object ToolSchemas {
   const val TOOL_SESSION_START: String = "session_start"
 
   const val DESC_WRITE_STATE: String = "Write or update a state node (Tier 1 capture for durable facts)."
-  const val DESC_WRITE_EPISODE: String = "Write or update an episode node and create a timeline backlink stub."
+  const val DESC_WRITE_EPISODE: String =
+    "Write or update an episode node, append it to a canonical subject hub, and create a timeline backlink stub."
   const val DESC_WRITE_TO_STAGING: String = "Write a state-shaped observation to staging/observations/."
   const val DESC_FLAG_SENSITIVE: String = "Re-route an existing or inline node to staging/sensitive/ for batch review."
   const val DESC_LIST_PENDING_SENSITIVE: String =
@@ -68,6 +69,8 @@ object ToolSchemas {
   const val KEY_EXCERPT: String = "excerpt"
   const val KEY_BACKLINK_PATH: String = "backlink_path"
   const val KEY_BACKLINK_STATUS: String = "backlink_status"
+  const val KEY_SUBJECT_HUB_PATH: String = "subject_hub_path"
+  const val KEY_SUBJECT_HUB_STATUS: String = "subject_hub_status"
   const val KEY_FIELD: String = "field"
   const val KEY_EXPECTED: String = "expected"
   const val KEY_INCLUDE_EXCERPTS: String = "include_excerpts"
@@ -94,10 +97,15 @@ object ToolSchemas {
   const val BACKLINK_STATUS_OK: String = "ok"
   const val BACKLINK_STATUS_FAILED: String = "failed"
   const val BACKLINK_STATUS_SKIPPED: String = "skipped"
+  const val SUBJECT_HUB_STATUS_CREATED: String = "created"
+  const val SUBJECT_HUB_STATUS_UPDATED: String = "updated"
+  const val SUBJECT_HUB_STATUS_FAILED: String = "failed"
+  const val SUBJECT_HUB_STATUS_SKIPPED: String = "skipped"
 
   const val PAYLOAD_KIND_STATE: String = "state"
   const val PAYLOAD_KIND_EPISODE: String = "episode"
   const val PAYLOAD_KIND_PATTERN: String = "pattern"
+  const val PAYLOAD_KIND_SUBJECT: String = "subject"
   const val PAYLOAD_KIND_EMOTIONAL_STATE: String = "emotional-state"
 
   const val BRANCH_STATE_PREFERENCES: String = VaultLayout.BRANCH_STATE_PREFERENCES
@@ -133,6 +141,7 @@ object ToolSchemas {
     PAYLOAD_KIND_STATE,
     PAYLOAD_KIND_EPISODE,
     PAYLOAD_KIND_PATTERN,
+    PAYLOAD_KIND_SUBJECT,
     PAYLOAD_KIND_EMOTIONAL_STATE,
   )
 }

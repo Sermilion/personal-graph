@@ -5,6 +5,7 @@ import com.sermilion.personalgraph.domain.model.EpisodeNode
 import com.sermilion.personalgraph.domain.model.NodeId
 import com.sermilion.personalgraph.domain.model.PatternNode
 import com.sermilion.personalgraph.domain.model.StateNode
+import com.sermilion.personalgraph.domain.model.SubjectNode
 import com.sermilion.personalgraph.testing.VaultNodeFixtures
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldContainAll
@@ -89,6 +90,21 @@ class MarkdownFrontmatterCodecRoundTripTest :
       decoded.evidenceCount shouldBe source.evidenceCount
       decoded.domainsSeenIn shouldBe source.domainsSeenIn
       decoded.body shouldBe source.body
+      decoded.links.map { it.value } shouldContainAll source.links.map { it.value }
+    }
+
+    test("subject node round-trips through encode + decode") {
+      val source = VaultNodeFixtures.subjectNode()
+
+      val encoded = codec.encode(source)
+      val decoded = codec.decode(source.id, encoded) as SubjectNode
+
+      decoded.id shouldBe source.id
+      decoded.domain shouldBe source.domain
+      decoded.subject shouldBe source.subject
+      decoded.aliases shouldBe source.aliases
+      decoded.evidenceCount shouldBe source.evidenceCount
+      decoded.sourceIds shouldBe source.sourceIds
       decoded.links.map { it.value } shouldContainAll source.links.map { it.value }
     }
 

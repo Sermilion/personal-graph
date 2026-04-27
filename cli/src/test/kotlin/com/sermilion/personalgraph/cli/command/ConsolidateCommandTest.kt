@@ -6,6 +6,8 @@ import com.sermilion.personalgraph.data.codec.MarkdownFrontmatterCodec
 import com.sermilion.personalgraph.domain.layout.VaultLayout.BRANCH_STAGING_OBSERVATIONS
 import com.sermilion.personalgraph.domain.layout.VaultLayout.BRANCH_STATE_PREFERENCES
 import com.sermilion.personalgraph.domain.model.Confidence
+import com.sermilion.personalgraph.domain.model.EpisodeType
+import com.sermilion.personalgraph.domain.model.Intensity
 import com.sermilion.personalgraph.domain.model.NodeId
 import com.sermilion.personalgraph.domain.model.StateCategory
 import com.sermilion.personalgraph.testing.VaultNodeFixtures
@@ -54,6 +56,18 @@ class ConsolidateCommandTest :
       invocation.output shouldContain "pattern_ids=patterns/user-tends-to-normalize-data-before-comparing-it-"
       invocation.output shouldContain "contradiction_source_ids=$BRANCH_STAGING_OBSERVATIONS/tabs-contradiction"
     }
+
+    test("consolidate command reports migrated legacy notes") {
+      val tempDir = Files.createTempDirectory("cli-consolidate-migration-")
+      writeLegacyEpisode(tempDir)
+
+      val invocation = personalGraphCli().test(arrayOf("consolidate", "--vault", tempDir.toString()))
+
+      invocation.statusCode shouldBe 0
+      invocation.output shouldContain "migrated_legacy_notes=1"
+      invocation.output shouldContain "migrated_subject_hub_ids=domains/work/capmo/subjects/build-pipeline"
+      invocation.output shouldContain "migrated_source_ids=domains/work/capmo/notes/build-pipeline"
+    }
   })
 
 private fun writeStaged(root: Path, id: String, body: String) {
@@ -68,6 +82,20 @@ private fun writeState(root: Path, id: String, body: String) {
     category = StateCategory.Preference,
     confidence = Confidence.Medium,
     links = listOf(NodeId("domains/work/capmo/events/source-${id.substringAfterLast('/')}")),
+  )
+  val target = root.resolve("${node.id.value}.md")
+  Files.createDirectories(target.parent)
+  Files.writeString(target, codec.encode(node))
+}
+
+private fun writeLegacyEpisode(root: Path) {
+  val codec = MarkdownFrontmatterCodec()
+  val node = VaultNodeFixtures.episodeNode().copy(
+    id = NodeId("domains/work/capmo/notes/build-pipeline"),
+    topic = "Build Pipeline",
+    episodeType = EpisodeType.Decision,
+    intensity = Intensity.Medium,
+    body = "Legacy note details.\n",
   )
   val target = root.resolve("${node.id.value}.md")
   Files.createDirectories(target.parent)

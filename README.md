@@ -6,7 +6,7 @@ Context about a person is currently locked inside individual AI tools. The same 
 
 ## Status
 
-Stage 1 shipped. The CLI scaffolds an Obsidian-compatible vault on demand (`personal-graph init --vault <path>`) and the local MCP server exposes scoped read/write capture tools over stdio. Tier 1 capture (`write_state`, `write_episode`, `write_to_staging`), sensitivity routing (`flag_sensitive`, `list_pending_sensitive`), and scoped reads (`read_node`, `list_branch`) are working end-to-end. Stage 2 consolidation is implemented as a manual CLI command that promotes repeated staged observations, merges equivalent duplicates, extracts pattern hubs, and annotates contradictions. Stage 3 session-start retrieval loads `Braian.md`, classifies the first user message, loads the matching domain subtree, and expands linked pattern hubs through the CLI and MCP server. Proactive surfacing remains a placeholder. See [`.feature-spec/spec.md`](./.feature-spec/spec.md) for the full vision and phased roadmap; per-stage progress lives in [`.feature-specs/STAGES.md`](./.feature-specs/STAGES.md).
+Stage 1 shipped. The CLI scaffolds an Obsidian-compatible vault on demand (`personal-graph init --vault <path>`) and the local MCP server exposes scoped read/write capture tools over stdio. Tier 1 capture (`write_state`, `write_episode`, `write_to_staging`), sensitivity routing (`flag_sensitive`, `list_pending_sensitive`), and scoped reads (`read_node`, `list_branch`) are working end-to-end. Stage 2 consolidation is implemented as a manual CLI command that promotes repeated staged observations, merges equivalent duplicates, extracts pattern hubs, annotates contradictions, and migrates fragmented legacy domain notes into canonical subject hubs. Stage 3 session-start retrieval loads `Braian.md`, classifies the first user message, loads the matching domain subtree, and expands linked pattern hubs through the CLI and MCP server. Proactive surfacing remains a placeholder. See [`.feature-spec/spec.md`](./.feature-spec/spec.md) for the full vision and phased roadmap; per-stage progress lives in [`.feature-specs/STAGES.md`](./.feature-specs/STAGES.md).
 
 ## Design principles
 
@@ -21,15 +21,16 @@ Stage 1 shipped. The CLI scaffolds an Obsidian-compatible vault on demand (`pers
 ## Vault layout
 
 ```
-<your-vault>/
-  Braian.md                        # root orienting note; always loaded first
-  state/                           # durable facts, preferences, roles
-  domains/                         # work/capmo, personal, creative, ...
-    <domain>/events/               # episode nodes for that domain
-  patterns/                        # extracted cross-cutting pattern hubs
-  emotional-states/                # dated incidents, evidence-only
-  timeline/YYYY-MM/                # chronological index of episodes
-  staging/                         # pending consolidation + sensitive queue
+  <your-vault>/
+    Braian.md                        # root orienting note; always loaded first
+    state/                           # durable facts, preferences, roles
+    domains/                         # work/capmo, personal, creative, ...
+      <domain>/events/               # dated work/life records in the canonical domain/topic
+      <domain>/subjects/             # reusable subject hubs with appended dated evidence
+    patterns/                        # extracted cross-cutting pattern hubs
+    emotional-states/                # dated incidents, evidence-only
+    timeline/YYYY-MM/                # chronological backlink stubs, not duplicate content
+    staging/                         # pending consolidation + sensitive queue
 ```
 
 Full schema, node types, and capture rules in [`.feature-spec/spec.md`](./.feature-spec/spec.md).
@@ -75,7 +76,7 @@ Scaffold a fresh vault (idempotent — never overwrites `Braian.md`):
 cli/build/install/personal-graph-cli/bin/personal-graph-cli init --vault /absolute/path/to/your/vault
 ```
 
-The CLI creates the directory layout (`state/...`, `domains/...`, `patterns/`, `emotional-states/`, `timeline/`, `staging/...`, `people/`) and seeds `Braian.md` with a short orientation note. Replace the `# TODO` block with a few sentences about yourself before pointing agents at it.
+The CLI creates the directory layout (`state/...`, `domains/.../events`, `domains/.../subjects`, `patterns/`, `emotional-states/`, `timeline/`, `staging/...`, `people/`) and seeds `Braian.md` with a short orientation note. Replace the `# TODO` block with a few sentences about yourself before pointing agents at it.
 
 Run manual consolidation:
 
@@ -83,7 +84,7 @@ Run manual consolidation:
 cli/build/install/personal-graph-cli/bin/personal-graph-cli consolidate --vault /absolute/path/to/your/vault
 ```
 
-Consolidation reads `staging/observations/` and durable graph branches only. By default it never reads `staging/sensitive/` or `people/`; sensitive review remains explicit through the Stage 1 sensitive queue tools.
+Consolidation reads `staging/observations/` and durable graph branches only. By default it never reads `staging/sensitive/` or `people/`; sensitive review remains explicit through the Stage 1 sensitive queue tools. It also migrates legacy `domains/.../notes/...` content into canonical `domains/.../subjects/...` hubs when possible.
 
 Load session-start context:
 
@@ -101,7 +102,7 @@ mcp-server/build/install/personal-graph-mcp-server/bin/personal-graph-mcp-server
 
 Register that binary with your AI tool's MCP configuration. The server exposes the Stage 1 capture/read tools plus Stage 3 retrieval:
 
-- `write_state`, `write_episode`, `write_to_staging` — Tier 1 capture.
+- `write_state`, `write_episode`, `write_to_staging` — Tier 1 capture. `write_episode` also reuses or appends to a canonical subject hub and writes only a timeline index stub.
 - `flag_sensitive`, `list_pending_sensitive` — sensitivity routing for batch disposition.
 - `read_node`, `list_branch` — scoped reads. `people/` is read-blocked by default; reads outside the vault root or outside whitelisted branches are rejected.
 - `session_start` — audited session-start retrieval of `Braian.md`, classified domain context, and linked pattern hubs.

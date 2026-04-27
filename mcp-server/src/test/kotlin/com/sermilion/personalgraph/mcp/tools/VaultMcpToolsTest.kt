@@ -5,6 +5,7 @@ import com.sermilion.personalgraph.domain.capture.BacklinkStatus
 import com.sermilion.personalgraph.domain.capture.CaptureResult
 import com.sermilion.personalgraph.domain.capture.FlagSensitiveArgs
 import com.sermilion.personalgraph.domain.capture.PayloadKind
+import com.sermilion.personalgraph.domain.capture.SubjectHubStatus
 import com.sermilion.personalgraph.domain.capture.VaultCaptureService
 import com.sermilion.personalgraph.domain.capture.WriteEpisodeArgs
 import com.sermilion.personalgraph.domain.capture.WriteStateArgs
@@ -96,6 +97,8 @@ class VaultMcpToolsTest :
         id = NodeId("domains/work/capmo/events/sample"),
         backlinkId = NodeId("timeline/2026-04/2026-04-24-sample"),
         backlinkStatus = BacklinkStatus.Failed,
+        subjectHubId = NodeId("domains/work/capmo/subjects/sample"),
+        subjectHubStatus = SubjectHubStatus.Created,
       )
 
       val args = buildJsonObject {
@@ -111,6 +114,9 @@ class VaultMcpToolsTest :
       (result[ToolSchemas.KEY_STATUS] as JsonPrimitive).content shouldBe ToolSchemas.STATUS_OK
       (result[ToolSchemas.KEY_BACKLINK_STATUS] as JsonPrimitive).content shouldBe ToolSchemas.BACKLINK_STATUS_FAILED
       (result[ToolSchemas.KEY_BACKLINK_PATH] as JsonPrimitive).content shouldBe "timeline/2026-04/2026-04-24-sample"
+      (result[ToolSchemas.KEY_SUBJECT_HUB_PATH] as JsonPrimitive).content shouldBe "domains/work/capmo/subjects/sample"
+      (result[ToolSchemas.KEY_SUBJECT_HUB_STATUS] as JsonPrimitive).content shouldBe
+        ToolSchemas.SUBJECT_HUB_STATUS_CREATED
     }
 
     test("flag_sensitive on people/ path is rejected at the adapter without calling capture") {

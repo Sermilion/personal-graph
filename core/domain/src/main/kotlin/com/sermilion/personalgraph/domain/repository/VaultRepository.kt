@@ -2,10 +2,23 @@ package com.sermilion.personalgraph.domain.repository
 
 import com.sermilion.personalgraph.domain.model.NodeId
 import com.sermilion.personalgraph.domain.model.StateNode
+import com.sermilion.personalgraph.domain.model.SubjectNode
 import com.sermilion.personalgraph.domain.model.VaultNode
 import kotlinx.coroutines.flow.Flow
 
-interface VaultRepository {
+interface SubjectHubRepository {
+  suspend fun listSubjectHubs(domain: String): List<SubjectNode>
+
+  suspend fun findSubjectHub(domain: String, subjectKey: String, aliases: List<String> = emptyList()): SubjectNode?
+}
+
+interface BacklinkRepository {
+  suspend fun listBacklinks(id: NodeId): List<VaultNode>
+}
+
+interface VaultRepository :
+  SubjectHubRepository,
+  BacklinkRepository {
   /**
    * Hot stream: emits the current node state immediately, then re-emits on every
    * subsequent vault change affecting this id. Completes only on cancellation.
@@ -31,6 +44,4 @@ interface VaultRepository {
   suspend fun moveNode(id: NodeId, newBranchPath: String): WriteOutcome
 
   suspend fun deleteNode(id: NodeId): WriteOutcome
-
-  suspend fun listBacklinks(id: NodeId): List<VaultNode>
 }

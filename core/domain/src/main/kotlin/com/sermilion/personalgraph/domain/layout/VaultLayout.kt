@@ -13,6 +13,8 @@ object VaultLayout {
   const val SUB_STATE_PREFERENCES: String = "preferences"
   const val SUB_STATE_ROLES: String = "roles"
   const val SUB_STATE_KNOWLEDGE: String = "knowledge"
+  const val SUB_DOMAIN_EVENTS: String = "events"
+  const val SUB_DOMAIN_SUBJECTS: String = "subjects"
 
   const val SUB_STAGING_OBSERVATIONS: String = "observations"
   const val SUB_STAGING_SENSITIVE: String = "sensitive"
@@ -30,13 +32,14 @@ object VaultLayout {
     BRANCH_STATE_PREFERENCES,
     BRANCH_STATE_ROLES,
     BRANCH_STATE_KNOWLEDGE,
-    "$BRANCH_DOMAINS/work/capmo/events",
-    "$BRANCH_DOMAINS/work/capmo/notes",
-    "$BRANCH_DOMAINS/work/reddit",
-    "$BRANCH_DOMAINS/personal/events",
-    "$BRANCH_DOMAINS/personal/notes",
-    "$BRANCH_DOMAINS/creative/events",
-    "$BRANCH_DOMAINS/creative/notes",
+    domainEvents("work/capmo"),
+    domainSubjects("work/capmo"),
+    domainEvents("work/reddit"),
+    domainSubjects("work/reddit"),
+    domainEvents("personal"),
+    domainSubjects("personal"),
+    domainEvents("creative"),
+    domainSubjects("creative"),
     BRANCH_PATTERNS,
     BRANCH_EMOTIONAL_STATES,
     BRANCH_TIMELINE,
@@ -55,6 +58,14 @@ object VaultLayout {
     StagingKind.Observations -> BRANCH_STAGING_OBSERVATIONS
     StagingKind.Sensitive -> BRANCH_STAGING_SENSITIVE
   }
+
+  fun domain(domainKey: String): String = "$BRANCH_DOMAINS/$domainKey"
+
+  fun domainEvents(domainKey: String): String = "${domain(domainKey)}/$SUB_DOMAIN_EVENTS"
+
+  fun domainSubjects(domainKey: String): String = "${domain(domainKey)}/$SUB_DOMAIN_SUBJECTS"
+
+  fun subjectHub(domainKey: String, subjectKey: String): String = "${domainSubjects(domainKey)}/$subjectKey"
 
   fun timeline(yearMonth: String): String = "$BRANCH_TIMELINE/$yearMonth"
 

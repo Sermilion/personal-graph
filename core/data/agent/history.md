@@ -1,5 +1,14 @@
 # core/data — history
 
+## [2026-04-27] cohesive-subject-hub-vault-organization (PG-4)
+Areas: core/data (subject hubs, capture, consolidation, repository), core/domain (layout/contracts), cli (consolidate reporting), mcp-server (tool schema/formatters), docs/tests
+- Added first-class `SubjectNode` markdown/frontmatter support plus canonical `domains/.../subjects/` routing so related feature/work context can accumulate in reusable hub notes with dated evidence instead of one-off files
+- `PersonalGraphVaultCaptureService` now upserts subject hubs on episode capture, appends evidence before creating siblings, and keeps timeline entries as index stubs that link out to the episode + hub; compatibility pitfall: timeline ids must stay keyed by topic slug, not episode id suffix
+- Consolidation now migrates legacy `domains/.../notes/...` content into canonical subject hubs and reports migrated-note counts through the CLI/MCP surfaces (reusable migration pattern)
+- Followed existing boundary pattern: `VaultLayout` remains the source of truth for branch paths, repository/path safety stays in `core/data`, and CLI/MCP stay thin over domain/data behavior
+Feature flag: N/A
+Acceptance criteria: 5/5 implemented
+
 ## [2026-04-25] capture-retrieval-classifier-fixes (PG-1)
 Areas: core/data (retrieval classifier + capture id rejection), mcp-server (schema description sweep, `ToolSchemaProperties.description` optional param), core/data tests
 - `PersonalGraphSessionStartRetrievalService.classify` now picks the highest-match-count domain across Work/Personal/Creative; `maxByOrNull` keeps the first tied candidate, so list order Work>Personal>Creative is the deterministic tiebreak (was first-non-empty, which silently lost recall when multiple domains had matches)
