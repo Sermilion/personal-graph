@@ -3,7 +3,7 @@
 - **Parent spec:** `.feature-specs/PG-5-map-first-session-start-retrieval/spec.md`
 - **Issue key:** PG-5
 - **Feature:** map-first-session-start-retrieval
-- **Status:** Ready
+- **Status:** Complete
 - **Validation strategy:** `bill-quality-check`
 - **Depends on:** Subtask 1 - Contract and scoped-state foundation
 

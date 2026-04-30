@@ -37,6 +37,8 @@ interface VaultRepository :
 
   suspend fun listNodesInBranch(branchPath: String): List<VaultNode>
 
+  suspend fun listMapNodesInBranch(branchPath: String, bodyWordLimit: Int): List<VaultNode>
+
   suspend fun listStagedObservations(): List<StateNode>
 
   suspend fun writeNode(node: VaultNode): WriteOutcome

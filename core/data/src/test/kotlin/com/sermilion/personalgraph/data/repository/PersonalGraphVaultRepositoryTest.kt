@@ -182,6 +182,18 @@ class PersonalGraphVaultRepositoryTest :
       nodes.map { it.id.value } shouldContainExactlyInAnyOrder listOf(first.id.value, second.id.value)
     }
 
+    test("listMapNodesInBranch returns bounded node previews") {
+      val (repo, _) = newRepository()
+      val body = (1..100).joinToString(" ") { "word$it" }
+      val node = VaultNodeFixtures.stateNode(id = "state/preferences/preview", body = body)
+      repo.writeNode(node) shouldBe WriteOutcome.Applied
+
+      val previews = repo.listMapNodesInBranch("state/preferences", bodyWordLimit = 10)
+
+      previews.map { it.id.value } shouldBe listOf(node.id.value)
+      previews.single().body shouldBe (1..10).joinToString(" ") { "word$it" } + "..."
+    }
+
     test("listStagedObservations returns observation staging only") {
       val (repo, _) = newRepository()
       val observation = VaultNodeFixtures.stateNode(id = "${VaultLayout.BRANCH_STAGING_OBSERVATIONS}/candidate")

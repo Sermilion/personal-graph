@@ -14,6 +14,7 @@ Areas: core/domain (retrieval report), core/data (map-first output), mcp-server 
 - `SessionStartRetrievalReport` now exposes canonical `loadedContext`, `availableMap`, and `suggestedReads`; old loaded-branch/node fields remain in-process compatibility only, while MCP default output omits broad body fields
 - `PersonalGraphSessionStartRetrievalService` builds relevance-ranked `availableMap` before applying the 80-entry cap so classified subject hubs/scoped state survive crowded global state; `suggestedReads` stays capped at 8
 - Default map entries filter `people/` and all `staging/` link targets to avoid leaking blocked ids through compact metadata; full bodies stay behind explicit `read_node`, `list_branch`, or `full-loading`
+- Repository preview support from the map-first engine branch adds `listMapNodesInBranch(...)` and `decodePreview(...)`, so future map construction can derive bounded summaries/links without hydrating full branch bodies
 - CLI `session-start` now has labeled sections and prints bounded `loaded_context` bodies between begin/end markers for non-MCP prompt preambles
 - Split retrieval mapping/suggestion helpers out of the service file to keep detekt thresholds satisfied as map metadata grows
 Feature flag: N/A
