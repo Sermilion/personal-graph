@@ -1,5 +1,15 @@
 # core/data — history
 
+## [2026-04-30] map-first-retrieval-engine (PG-5)
+Areas: core/domain (retrieval DTOs + repository preview contract), core/data (session-start retrieval, codec, repository previews), mcp-server (schema/formatter contract), cli, core/testing
+- Default `session_start` is now genuinely map-first: planned broad state/domain branches return compact map entries and leave `loadedNodes` empty; `FullLoading` remains the explicit opt-in path for full node bodies
+- Repository now exposes `listMapNodesInBranch(branchPath, bodyWordLimit)` and `MarkdownFrontmatterCodec.decodePreview(...)` so map-first retrieval can derive summaries/links from bounded body previews instead of hydrating complete branch bodies
+- Compact map entries and suggested reads carry rich navigation metadata: domain/category/scope/scopes, created/updated/date, summary/excerpt, aliases/terms, links/pattern links, and cheap backlink counts computed from the mapped node set (not repeated full-vault backlink scans)
+- Suggestion scoring is deterministic: subject hubs rank ahead of raw events by default, recent/evidence/timeline prompts can lift events, global state remains eligible across domains, and scoped state is limited to matching classified domains
+- MCP JSON omits absent optional metadata instead of serializing fake defaults; CLI prints the rich map/suggested-read fields; tests lock map shape, budget, full-loading opt-in, scoped filtering, ranking, audit reasons, and preview-body bounds
+Feature flag: N/A
+Acceptance criteria: 9/9 implemented
+
 ## [2026-04-30] contract-and-scoped-state-foundation (PG-5)
 Areas: core/domain (retrieval + capture contracts), core/data (retrieval, capture, codec, mappers), mcp-server (schemas/parsers/formatters), cli, core/testing
 - `SessionStartRetrievalService` now has an explicit `SessionStartRetrievalMode`: default `MapFirst` keeps full-body context to `Braian.md` only, while `FullLoading` is the opt-in path for loaded node bodies; compatibility fields remain while new map-first fields are introduced

@@ -58,7 +58,32 @@ class SessionStartCommand : CliktCommand(name = COMMAND_NAME) {
     }
     appendLine("loaded_full_body_context=${report.loadedFullBodyContext.size}")
     appendLine("compact_map_entries=${report.compactMapEntries.size}")
+    for (entry in report.compactMapEntries) {
+      appendLine(
+        "map=${entry.id}; kind=${entry.kind.value}; domain=${entry.domain.orEmpty()}; " +
+          "category=${entry.category.orEmpty()}; scope=${entry.scope.orEmpty()}; " +
+          "scopes=${entry.scopes.joinToString(",")}; date=${entry.date.orEmpty()}; " +
+          "updated=${entry.updatedAt.orEmpty()}; summary=${entry.summary.orEmpty()}; " +
+          "excerpt=${entry.excerpt.orEmpty()}; aliases=${entry.aliases.joinToString(",")}; " +
+          "terms=${entry.terms.joinToString(",")}; links=${entry.links.joinToString(",")}; " +
+          "pattern_links=${entry.patternLinks.joinToString(",")}; " +
+          "backlinks=${entry.backlinkCount?.toString().orEmpty()}; reason=${entry.reason}",
+      )
+    }
     appendLine("suggested_reads=${report.suggestedReads.size}")
+    for (read in report.suggestedReads) {
+      appendLine(
+        "suggested=${read.id}; kind=${read.kind.value}; domain=${read.domain.orEmpty()}; " +
+          "category=${read.category.orEmpty()}; scope=${read.scope.orEmpty()}; " +
+          "scopes=${read.scopes.joinToString(",")}; date=${read.date.orEmpty()}; " +
+          "updated=${read.updatedAt.orEmpty()}; summary=${read.summary.orEmpty()}; " +
+          "excerpt=${read.excerpt.orEmpty()}; aliases=${read.aliases.joinToString(",")}; " +
+          "terms=${read.terms.joinToString(",")}; links=${read.links.joinToString(",")}; " +
+          "pattern_links=${read.patternLinks.joinToString(",")}; " +
+          "backlinks=${read.backlinkCount?.toString().orEmpty()}; " +
+          "reason=${read.reason}",
+      )
+    }
     appendLine("skipped_branches=${report.skippedBranches.size}")
     for (skip in report.skippedBranches) {
       appendLine("skipped=${skip.branch}; reason=${skip.reason}")

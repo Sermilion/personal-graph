@@ -34,6 +34,7 @@ import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalReport
 import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalRequest
 import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalService
 import com.sermilion.personalgraph.domain.retrieval.SkippedBranch
+import com.sermilion.personalgraph.domain.retrieval.SuggestedRead
 import com.sermilion.personalgraph.testing.VaultNodeFixtures
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
@@ -391,6 +392,35 @@ class VaultMcpToolsTest :
             reason = "classified work/capmo from first substantive message",
             nodeCount = 1,
           ),
+          CompactMapEntry(
+            id = "domains/work/capmo/events/review",
+            kind = CompactMapEntryKind.Node,
+            reason = "available as compact map entry",
+            domain = "work/capmo",
+            category = "decision",
+            updatedAt = "2026-04-24T00:00:00Z",
+            date = "2026-04-24T00:00:00Z",
+            summary = "Review summary",
+            excerpt = "Review excerpt",
+            terms = listOf("work/capmo", "decision"),
+            links = listOf("patterns/review-shape"),
+            patternLinks = listOf("patterns/review-shape"),
+            backlinkCount = 2,
+          ),
+        ),
+        suggestedReads = listOf(
+          SuggestedRead(
+            id = "domains/work/capmo/events/review",
+            reason = "recent event evidence requested by message",
+            domain = "work/capmo",
+            category = "decision",
+            updatedAt = "2026-04-24T00:00:00Z",
+            summary = "Review summary",
+            terms = listOf("work/capmo", "decision"),
+            links = listOf("patterns/review-shape"),
+            patternLinks = listOf("patterns/review-shape"),
+            backlinkCount = 2,
+          ),
         ),
       )
 
@@ -408,7 +438,19 @@ class VaultMcpToolsTest :
       ((loadedContext[0] as JsonObject)[ToolSchemas.KEY_SOURCE] as JsonPrimitive).content shouldBe "root"
       val compactMap = result[ToolSchemas.KEY_COMPACT_MAP_ENTRIES] as JsonArray
       ((compactMap[0] as JsonObject)[ToolSchemas.KEY_KIND] as JsonPrimitive).content shouldBe "branch"
-      result[ToolSchemas.KEY_SUGGESTED_READS].shouldBeInstanceOf<JsonArray>().size shouldBe 0
+      (compactMap[0] as JsonObject)[ToolSchemas.KEY_DOMAIN] shouldBe null
+      val mapNode = compactMap[1] as JsonObject
+      (mapNode[ToolSchemas.KEY_SUMMARY] as JsonPrimitive).content shouldBe "Review summary"
+      (mapNode[ToolSchemas.KEY_EXCERPT] as JsonPrimitive).content shouldBe "Review excerpt"
+      (mapNode[ToolSchemas.KEY_BACKLINK_COUNT] as JsonPrimitive).content shouldBe "2"
+      ((mapNode[ToolSchemas.KEY_TERMS] as JsonArray)[0] as JsonPrimitive).content shouldBe "work/capmo"
+      ((mapNode[ToolSchemas.KEY_LINKS] as JsonArray)[0] as JsonPrimitive).content shouldBe "patterns/review-shape"
+      val suggestedReads = result[ToolSchemas.KEY_SUGGESTED_READS].shouldBeInstanceOf<JsonArray>()
+      suggestedReads.size shouldBe 1
+      val suggested = suggestedReads[0] as JsonObject
+      (suggested[ToolSchemas.KEY_ID] as JsonPrimitive).content shouldBe "domains/work/capmo/events/review"
+      (suggested[ToolSchemas.KEY_SUMMARY] as JsonPrimitive).content shouldBe "Review summary"
+      (suggested[ToolSchemas.KEY_BACKLINK_COUNT] as JsonPrimitive).content shouldBe "2"
       coVerify(exactly = 1) { ctx.retrieval.retrieve(SessionStartRetrievalRequest("review a Capmo PR")) }
     }
 

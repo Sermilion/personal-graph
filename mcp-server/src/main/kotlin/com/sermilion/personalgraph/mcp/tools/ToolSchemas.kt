@@ -26,7 +26,8 @@ object ToolSchemas {
   const val DESC_READ_NODE: String = "Read a node by id. Reads under people/ are blocked by default."
   const val DESC_LIST_BRANCH: String = "List nodes under a branch path. Reads under people/ are blocked by default."
   const val DESC_SESSION_START: String =
-    "Load session-start context: Braian.md, classified domain subtree, and linked pattern hubs."
+    "Load map-first session-start context: Braian.md full body by default, compact available-map entries, " +
+      "suggested reads, and audit reasons. Classified branch bodies require explicit full-loading opt-in."
 
   const val DESC_FIELD_STATE_ID: String =
     "Node id. Accepts canonical plural prefix (e.g. state/roles/<leaf>), or a bare leaf which is " +
@@ -81,6 +82,12 @@ object ToolSchemas {
   const val KEY_NODE: String = "node"
   const val KEY_NODES: String = "nodes"
   const val KEY_EXCERPT: String = "excerpt"
+  const val KEY_SUMMARY: String = "summary"
+  const val KEY_ALIASES: String = "aliases"
+  const val KEY_TERMS: String = "terms"
+  const val KEY_BACKLINK_COUNT: String = "backlink_count"
+  const val KEY_CREATED_AT: String = "created_at"
+  const val KEY_UPDATED_AT: String = "updated_at"
   const val KEY_BACKLINK_PATH: String = "backlink_path"
   const val KEY_BACKLINK_STATUS: String = "backlink_status"
   const val KEY_SUBJECT_HUB_PATH: String = "subject_hub_path"

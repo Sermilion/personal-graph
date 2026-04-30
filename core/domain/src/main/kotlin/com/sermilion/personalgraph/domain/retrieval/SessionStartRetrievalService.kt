@@ -84,6 +84,20 @@ data class CompactMapEntry(
   val kind: CompactMapEntryKind,
   val reason: String,
   val nodeCount: Int? = null,
+  val domain: String? = null,
+  val category: String? = null,
+  val scope: String? = null,
+  val scopes: List<String> = emptyList(),
+  val createdAt: String? = null,
+  val updatedAt: String? = null,
+  val date: String? = null,
+  val summary: String? = null,
+  val excerpt: String? = null,
+  val aliases: List<String> = emptyList(),
+  val terms: List<String> = emptyList(),
+  val links: List<String> = emptyList(),
+  val patternLinks: List<String> = emptyList(),
+  val backlinkCount: Int? = null,
 )
 
 enum class CompactMapEntryKind(val value: String) {
@@ -94,6 +108,21 @@ enum class CompactMapEntryKind(val value: String) {
 data class SuggestedRead(
   val id: String,
   val reason: String,
+  val kind: CompactMapEntryKind = CompactMapEntryKind.Node,
+  val domain: String? = null,
+  val category: String? = null,
+  val scope: String? = null,
+  val scopes: List<String> = emptyList(),
+  val createdAt: String? = null,
+  val updatedAt: String? = null,
+  val date: String? = null,
+  val summary: String? = null,
+  val excerpt: String? = null,
+  val aliases: List<String> = emptyList(),
+  val terms: List<String> = emptyList(),
+  val links: List<String> = emptyList(),
+  val patternLinks: List<String> = emptyList(),
+  val backlinkCount: Int? = null,
 )
 
 data class SkippedBranch(

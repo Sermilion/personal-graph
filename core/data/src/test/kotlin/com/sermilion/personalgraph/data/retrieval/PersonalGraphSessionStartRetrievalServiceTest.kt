@@ -45,7 +45,7 @@ class PersonalGraphSessionStartRetrievalServiceTest :
       return TestContext(service, repo, tempDir)
     }
 
-    test("loads Braian first then classified work subtree and linked patterns") {
+    test("loads Braian first then maps classified work subtree and linked patterns") {
       val (service, repo) = newService()
       val workNode = VaultNodeFixtures.episodeNode().copy(
         id = NodeId("domains/work/capmo/events/review"),
@@ -70,16 +70,17 @@ class PersonalGraphSessionStartRetrievalServiceTest :
         VaultLayout.BRANCH_STATE_ROLES,
         "domains/work/capmo",
       )
-      report.loadedNodes.map { it.id } shouldContain "domains/work/capmo/events/review"
-      report.loadedNodes.map { it.id } shouldContain "patterns/review-shape"
-      report.loadedNodes.first { it.id == "patterns/review-shape" }.reason shouldContain "wikilinked pattern"
+      report.loadedNodes.shouldBeEmpty()
       report.loadedFullBodyContext.map { it.id } shouldContain "Braian.md"
       report.loadedFullBodyContext.map { it.id } shouldNotContain "domains/work/capmo/events/review"
       report.compactMapEntries.map { it.id } shouldContain "domains/work/capmo"
       report.compactMapEntries.map { it.id } shouldContain "domains/work/capmo/events/review"
-      report.suggestedReads.shouldBeEmpty()
+      report.compactMapEntries.map { it.id } shouldContain "patterns/review-shape"
+      report.compactMapEntries.first { it.id == "patterns/review-shape" }.reason shouldContain "pattern hub"
+      report.suggestedReads.map { it.id } shouldContain "patterns/review-shape"
       report.auditEntries shouldBe report.audit
       report.audit.map { it.action } shouldContain "loaded_pattern"
+      report.audit.map { it.action } shouldContain "skipped_full_branch"
     }
 
     test("explicit full-loading includes non-root loaded node bodies") {
@@ -114,7 +115,7 @@ class PersonalGraphSessionStartRetrievalServiceTest :
 
       val report = service.retrieve(SessionStartRetrievalRequest("Capmo review"))
 
-      report.loadedNodes.map { it.id } shouldContain "domains/work/capmo/events/review"
+      report.loadedNodes.shouldBeEmpty()
       report.compactMapEntries.map { it.id } shouldContain "domains/work/capmo/events/review"
       report.loadedFullBodyContext.map { it.id } shouldContainExactly listOf("Braian.md")
     }
@@ -132,8 +133,8 @@ class PersonalGraphSessionStartRetrievalServiceTest :
         VaultLayout.BRANCH_STATE_ROLES,
         VaultLayout.BRANCH_STATE_KNOWLEDGE,
       )
-      report.loadedNodes.map { it.id } shouldContain "state/preferences/status-updates"
-      report.loadedNodes.map { it.id }.contains("emotional-states/2026-04-24-debug-frustration") shouldBe false
+      report.compactMapEntries.map { it.id } shouldContain "state/preferences/status-updates"
+      report.compactMapEntries.map { it.id }.contains("emotional-states/2026-04-24-debug-frustration") shouldBe false
       report.skippedBranches.map { it.branch } shouldContain VaultLayout.BRANCH_EMOTIONAL_STATES
     }
 
@@ -145,7 +146,7 @@ class PersonalGraphSessionStartRetrievalServiceTest :
 
       report.classification.emotionalContextRequested shouldBe true
       report.loadedBranches.map { it.branch } shouldContain VaultLayout.BRANCH_EMOTIONAL_STATES
-      report.loadedNodes.map { it.id } shouldContain "emotional-states/2026-04-24-debug-frustration"
+      report.compactMapEntries.map { it.id } shouldContain "emotional-states/2026-04-24-debug-frustration"
     }
 
     test("retrieval skips people and staging sensitive and does not follow symlinked pattern files") {
@@ -170,6 +171,7 @@ class PersonalGraphSessionStartRetrievalServiceTest :
       report.skippedBranches.map { it.branch } shouldContain VaultLayout.BRANCH_STAGING
       report.loadedNodes.map { it.id }.contains("staging/sensitive/private") shouldBe false
       report.loadedNodes.map { it.id }.contains("patterns/secret") shouldBe false
+      report.compactMapEntries.map { it.id }.contains("staging/sensitive/private") shouldBe false
       report.audit.any { it.action == "skipped_pattern" && it.subject == "patterns/secret" } shouldBe true
     }
 
@@ -323,14 +325,14 @@ class PersonalGraphSessionStartRetrievalServiceTest :
       ) shouldBe WriteOutcome.Applied
 
       val capmoReport = service.retrieve(SessionStartRetrievalRequest("Capmo review"))
-      capmoReport.loadedNodes.map { it.id } shouldContain "state/preferences/global"
-      capmoReport.loadedNodes.map { it.id } shouldContain "state/preferences/capmo-scope"
-      capmoReport.loadedNodes.map { it.id } shouldNotContain "state/preferences/readian-scope"
+      capmoReport.compactMapEntries.map { it.id } shouldContain "state/preferences/global"
+      capmoReport.compactMapEntries.map { it.id } shouldContain "state/preferences/capmo-scope"
+      capmoReport.compactMapEntries.map { it.id } shouldNotContain "state/preferences/readian-scope"
 
       val readianReport = service.retrieve(SessionStartRetrievalRequest("Readian article"))
-      readianReport.loadedNodes.map { it.id } shouldContain "state/preferences/global"
-      readianReport.loadedNodes.map { it.id } shouldContain "state/preferences/readian-scope"
-      readianReport.loadedNodes.map { it.id } shouldNotContain "state/preferences/capmo-scope"
+      readianReport.compactMapEntries.map { it.id } shouldContain "state/preferences/global"
+      readianReport.compactMapEntries.map { it.id } shouldContain "state/preferences/readian-scope"
+      readianReport.compactMapEntries.map { it.id } shouldNotContain "state/preferences/capmo-scope"
     }
 
     test("general retrieval excludes scoped state from broad state branches") {
@@ -346,8 +348,137 @@ class PersonalGraphSessionStartRetrievalServiceTest :
       val report = service.retrieve(SessionStartRetrievalRequest("What should we talk about next?"))
 
       report.classification.domain shouldBe RetrievalDomain.General
-      report.loadedNodes.map { it.id } shouldContain "state/preferences/global"
-      report.loadedNodes.map { it.id } shouldNotContain "state/preferences/capmo-scope"
+      report.compactMapEntries.map { it.id } shouldContain "state/preferences/global"
+      report.compactMapEntries.map { it.id } shouldNotContain "state/preferences/capmo-scope"
+    }
+
+    test("default map entries carry required map-first fields") {
+      val (service, repo) = newService()
+      repo.writeNode(VaultNodeFixtures.subjectNode()) shouldBe WriteOutcome.Applied
+      repo.writeNode(
+        VaultNodeFixtures.episodeNode().copy(
+          id = NodeId("domains/work/capmo/events/review"),
+          date = VaultNodeFixtures.episodeInstant,
+          topic = "review topic",
+          body = "Evidence body line.\n",
+        ),
+      ) shouldBe WriteOutcome.Applied
+      repo.writeNode(
+        VaultNodeFixtures.stateNode(
+          id = "state/preferences/capmo-scope",
+          body = "Prefer explicit architecture.\n",
+          scope = "work/capmo",
+        ),
+      ) shouldBe WriteOutcome.Applied
+
+      val report = service.retrieve(SessionStartRetrievalRequest("Capmo architecture"))
+
+      val subject = report.compactMapEntries.first { it.id == "domains/work/capmo/subjects/build-pipeline" }
+      subject.kind shouldBe com.sermilion.personalgraph.domain.retrieval.CompactMapEntryKind.Node
+      subject.domain shouldBe "work/capmo"
+      subject.category shouldBe "subject"
+      subject.updatedAt.orEmpty() shouldContain "2026-04-24"
+      subject.summary shouldBe "Build pipeline ownership is shared."
+      subject.excerpt shouldBe "Build pipeline ownership is shared."
+      subject.aliases shouldContainExactly listOf("deploy-pipeline")
+      subject.terms shouldContain "build-pipeline"
+      subject.links shouldContain "domains/work/capmo/events/sample-episode"
+      subject.backlinkCount shouldBe 0
+
+      val event = report.compactMapEntries.first { it.id == "domains/work/capmo/events/review" }
+      event.domain shouldBe "work/capmo"
+      event.category shouldBe "decision"
+      event.date shouldBe VaultNodeFixtures.episodeInstant.toString()
+      event.summary shouldContain "review topic"
+
+      val scopedState = report.compactMapEntries.first { it.id == "state/preferences/capmo-scope" }
+      scopedState.category shouldBe "preference"
+      scopedState.scope shouldBe "work/capmo"
+      scopedState.summary shouldBe "Prefer explicit architecture."
+    }
+
+    test("default full-body loading is bounded to root orientation budget") {
+      val (service, repo, root) = newService()
+      val longRoot = (1..1_700).joinToString(" ") { "root$it" }
+      Files.writeString(root.resolve(VaultLayout.BRAIAN_FILENAME), longRoot)
+      repo.writeNode(
+        VaultNodeFixtures.episodeNode().copy(
+          id = NodeId("domains/work/capmo/events/long"),
+          body = (1..1_000).joinToString(" ") { "event$it" },
+        ),
+      ) shouldBe WriteOutcome.Applied
+
+      val report = service.retrieve(SessionStartRetrievalRequest("Capmo"))
+
+      report.loadedNodes.shouldBeEmpty()
+      report.loadedFullBodyContext.map { it.id } shouldContainExactly listOf("Braian.md")
+      report.loadedFullBodyContext.single().body.split(Regex("\\s+")).size shouldBe 1_500
+      report.audit.any {
+        it.action == "full_body_budget" &&
+          it.reason.contains("default full-body budget=1500 words")
+      } shouldBe true
+    }
+
+    test("default map entries use bounded node previews instead of full bodies") {
+      val (service, repo) = newService()
+      repo.writeNode(
+        VaultNodeFixtures.episodeNode().copy(
+          id = NodeId("domains/work/capmo/events/long-preview"),
+          body = (1..500).joinToString(" ") { "event$it" },
+        ),
+      ) shouldBe WriteOutcome.Applied
+
+      val report = service.retrieve(SessionStartRetrievalRequest("Capmo"))
+
+      report.loadedNodes.shouldBeEmpty()
+      val entry = report.compactMapEntries.first { it.id == "domains/work/capmo/events/long-preview" }
+      entry.summary.orEmpty() shouldContain "event1"
+      entry.summary.orEmpty().contains("event500") shouldBe false
+      entry.excerpt.orEmpty().contains("event500") shouldBe false
+    }
+
+    test("suggested reads prefer subject hubs over raw events unless recent evidence is requested") {
+      val (service, repo) = newService()
+      repo.writeNode(VaultNodeFixtures.subjectNode()) shouldBe WriteOutcome.Applied
+      repo.writeNode(
+        VaultNodeFixtures.episodeNode().copy(
+          id = NodeId("domains/work/capmo/events/recent-review"),
+          topic = "recent review",
+          body = "Recent event body.\n",
+        ),
+      ) shouldBe WriteOutcome.Applied
+
+      val defaultReport = service.retrieve(SessionStartRetrievalRequest("Capmo review"))
+      defaultReport.suggestedReads.first().id shouldBe "domains/work/capmo/subjects/build-pipeline"
+
+      val recentReport = service.retrieve(SessionStartRetrievalRequest("latest Capmo evidence timeline"))
+      recentReport.suggestedReads.first().id shouldBe "domains/work/capmo/events/recent-review"
+      recentReport.audit.any {
+        it.action == "suggested_read" &&
+          it.subject == "domains/work/capmo/events/recent-review" &&
+          it.reason.contains("recent event evidence")
+      } shouldBe true
+    }
+
+    test("suggested scoped state is global or classified-domain relevant only") {
+      val (service, repo) = newService()
+      repo.writeNode(VaultNodeFixtures.stateNode(id = "state/preferences/global")) shouldBe WriteOutcome.Applied
+      repo.writeNode(
+        VaultNodeFixtures.stateNode(id = "state/preferences/capmo-scope", scope = "work/capmo"),
+      ) shouldBe WriteOutcome.Applied
+      repo.writeNode(
+        VaultNodeFixtures.stateNode(id = "state/preferences/readian-scope", scope = "work/readian"),
+      ) shouldBe WriteOutcome.Applied
+
+      val capmoReport = service.retrieve(SessionStartRetrievalRequest("Capmo"))
+      capmoReport.suggestedReads.map { it.id } shouldContain "state/preferences/global"
+      capmoReport.suggestedReads.map { it.id } shouldContain "state/preferences/capmo-scope"
+      capmoReport.suggestedReads.map { it.id } shouldNotContain "state/preferences/readian-scope"
+
+      val generalReport = service.retrieve(SessionStartRetrievalRequest("What should we talk about?"))
+      generalReport.suggestedReads.map { it.id } shouldContain "state/preferences/global"
+      generalReport.suggestedReads.map { it.id } shouldNotContain "state/preferences/capmo-scope"
+      generalReport.suggestedReads.map { it.id } shouldNotContain "state/preferences/readian-scope"
     }
   })
 

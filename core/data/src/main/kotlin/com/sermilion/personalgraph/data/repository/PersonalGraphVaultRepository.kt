@@ -13,6 +13,8 @@ import com.sermilion.personalgraph.domain.model.VaultNode
 import com.sermilion.personalgraph.domain.repository.VaultRepository
 import com.sermilion.personalgraph.domain.repository.WriteOutcome
 import io.github.oshai.kotlinlogging.KotlinLogging
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.sync.Mutex
@@ -88,6 +90,27 @@ class PersonalGraphVaultRepository(
     }
     listBranchUnsafeOrLogged(
       branchPath = branchPath,
+      vaultRoot = vaultRoot,
+      pathResolver = pathResolver,
+      decodeContext = decodeContext,
+    )
+  }
+
+  override suspend fun listMapNodesInBranch(
+    branchPath: String,
+    bodyWordLimit: Int,
+  ): List<VaultNode> = withContext(dispatcherProvider.io) {
+    if (VaultPolicy.isReadBlocked(branchPath)) {
+      logger.debug { "listMapNodesInBranch blocked: branchPath=$branchPath is read-blocked" }
+      return@withContext emptyList()
+    }
+    if (!VaultPolicy.isReadAllowed(branchPath)) {
+      logger.debug { "listMapNodesInBranch blocked: branchPath=$branchPath is not read-allowed" }
+      return@withContext emptyList()
+    }
+    listBranchPreviewsUnsafeOrLogged(
+      branchPath = branchPath,
+      bodyWordLimit = bodyWordLimit,
       vaultRoot = vaultRoot,
       pathResolver = pathResolver,
       decodeContext = decodeContext,
@@ -236,6 +259,44 @@ private suspend fun listBranchUnsafeOrLogged(
 } catch (e: SecurityException) {
   decodeContext.logger.warn(e) { "listNodesInBranch denied for branchPath=$branchPath" }
   emptyList()
+}
+
+private suspend fun listBranchPreviewsUnsafeOrLogged(
+  branchPath: String,
+  bodyWordLimit: Int,
+  vaultRoot: Path,
+  pathResolver: VaultPathResolver,
+  decodeContext: VaultDecodeContext,
+): List<VaultNode> = try {
+  val branchDir = vaultRoot.resolve(branchPath)
+  when {
+    !Files.exists(branchDir) || !Files.isDirectory(branchDir) -> emptyList()
+    !pathResolver.assertWithinVault(vaultRoot, branchDir) -> emptyList()
+    else -> walkAndAccumulatePreviews(decodeContext, branchDir, bodyWordLimit)
+  }
+} catch (e: IOException) {
+  decodeContext.logger.warn(e) { "listMapNodesInBranch failed for branchPath=$branchPath" }
+  emptyList()
+} catch (e: SecurityException) {
+  decodeContext.logger.warn(e) { "listMapNodesInBranch denied for branchPath=$branchPath" }
+  emptyList()
+}
+
+private suspend fun walkAndAccumulatePreviews(
+  decodeContext: VaultDecodeContext,
+  branchDir: Path,
+  bodyWordLimit: Int,
+): List<VaultNode> {
+  val results = mutableListOf<VaultNode>()
+  Files.walk(branchDir, MAX_LIST_DEPTH).use { stream ->
+    for (file in stream) {
+      currentCoroutineContext().ensureActive()
+      if (results.size >= MAX_LIST_RESULTS) return@use
+      val node = decodeMarkdownPreviewIfEligible(decodeContext, file, bodyWordLimit) ?: continue
+      results.add(node)
+    }
+  }
+  return results
 }
 
 private fun applyOwnerOnlyToDirs(
