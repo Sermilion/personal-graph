@@ -2,6 +2,10 @@ package com.sermilion.personalgraph.mcp.tools
 
 import com.sermilion.personalgraph.data.path.VaultPathResolver
 import com.sermilion.personalgraph.domain.capture.BacklinkStatus
+import com.sermilion.personalgraph.domain.capture.CaptureObservationArgs
+import com.sermilion.personalgraph.domain.capture.CaptureObservationDecision
+import com.sermilion.personalgraph.domain.capture.CaptureObservationKind
+import com.sermilion.personalgraph.domain.capture.CaptureObservationResult
 import com.sermilion.personalgraph.domain.capture.CaptureResult
 import com.sermilion.personalgraph.domain.capture.FlagSensitiveArgs
 import com.sermilion.personalgraph.domain.capture.PayloadKind
@@ -89,6 +93,37 @@ class VaultMcpToolsTest :
       (result[ToolSchemas.KEY_STATUS] as JsonPrimitive).content shouldBe ToolSchemas.STATUS_INVALID_INPUT
       (result[ToolSchemas.KEY_FIELD] as JsonPrimitive).content shouldBe ToolSchemas.KEY_ID
       coVerify(exactly = 0) { ctx.capture.writeStateObservation(any()) }
+    }
+
+    test("capture_observation forwards candidate observations to capture service") {
+      val ctx = newTools()
+      val captured = slot<CaptureObservationArgs>()
+      coEvery { ctx.capture.captureObservation(capture(captured)) } returns CaptureObservationResult.Decided(
+        decision = CaptureObservationDecision.StateWritten,
+        reason = "candidate_accepted_as_state",
+        captureResult = CaptureResult.Created(NodeId("state/preferences/personal-graph-source-of-truth")),
+      )
+
+      val args = buildJsonObject {
+        put(
+          ToolSchemas.KEY_OBSERVATION,
+          JsonPrimitive("Braian prefers personal-graph to own capture filtering."),
+        )
+        put(ToolSchemas.KEY_SOURCE_CONTEXT, JsonPrimitive("design discussion"))
+        put(ToolSchemas.KEY_SUGGESTED_KIND, JsonPrimitive(ToolSchemas.PAYLOAD_KIND_STATE))
+        put(ToolSchemas.KEY_LINKS, JsonArray(listOf(JsonPrimitive("state/preferences/example"))))
+      }
+
+      val result = ctx.tools.captureObservation(args)
+
+      (result[ToolSchemas.KEY_STATUS] as JsonPrimitive).content shouldBe ToolSchemas.STATUS_OK
+      (result[ToolSchemas.KEY_DECISION] as JsonPrimitive).content shouldBe ToolSchemas.DECISION_STATE_WRITTEN
+      (result[ToolSchemas.KEY_PATH] as JsonPrimitive).content shouldBe
+        "state/preferences/personal-graph-source-of-truth"
+      captured.captured.suggestedKind shouldBe CaptureObservationKind.State
+      captured.captured.sourceContext shouldBe "design discussion"
+      captured.captured.links shouldBe listOf(NodeId("state/preferences/example"))
+      coVerify(exactly = 1) { ctx.capture.captureObservation(any()) }
     }
 
     test("write_episode reports backlink_status when capture service returns Failed backlink") {
@@ -337,6 +372,14 @@ class VaultMcpToolsTest :
       val linksField = schema.properties!![ToolSchemas.KEY_LINKS] as JsonObject
       val description = (linksField["description"] as JsonPrimitive).content
       description shouldContain "silently dropped"
+    }
+
+    test("capture_observation schema describes personal-graph as the decision owner") {
+      val schema = ToolSchemaBuilder.captureObservationSchema()
+      val observationField = schema.properties!![ToolSchemas.KEY_OBSERVATION] as JsonObject
+      val description = (observationField["description"] as JsonPrimitive).content
+      description shouldContain "Personal-graph owns"
+      description shouldContain "reject"
     }
 
     test("flag_sensitive schema describes payload_kind rejection on type mismatch") {

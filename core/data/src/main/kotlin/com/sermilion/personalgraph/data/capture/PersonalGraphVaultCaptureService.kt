@@ -2,6 +2,9 @@ package com.sermilion.personalgraph.data.capture
 
 import com.sermilion.personalgraph.common.di.AppScope
 import com.sermilion.personalgraph.domain.capture.BacklinkStatus
+import com.sermilion.personalgraph.domain.capture.CaptureObservationArgs
+import com.sermilion.personalgraph.domain.capture.CaptureObservationDecision
+import com.sermilion.personalgraph.domain.capture.CaptureObservationResult
 import com.sermilion.personalgraph.domain.capture.CaptureResult
 import com.sermilion.personalgraph.domain.capture.FlagSensitiveArgs
 import com.sermilion.personalgraph.domain.capture.PayloadKind
@@ -12,6 +15,7 @@ import com.sermilion.personalgraph.domain.capture.WriteStateArgs
 import com.sermilion.personalgraph.domain.capture.WriteToStagingArgs
 import com.sermilion.personalgraph.domain.layout.VaultLayout
 import com.sermilion.personalgraph.domain.layout.VaultPolicy
+import com.sermilion.personalgraph.domain.model.Confidence
 import com.sermilion.personalgraph.domain.model.EmotionalStateNode
 import com.sermilion.personalgraph.domain.model.EpisodeNode
 import com.sermilion.personalgraph.domain.model.NodeId
@@ -36,6 +40,20 @@ class PersonalGraphVaultCaptureService(
 ) : VaultCaptureService {
 
   private val logger = KotlinLogging.logger {}
+
+  override suspend fun captureObservation(args: CaptureObservationArgs): CaptureObservationResult = when {
+    args.observation.isBlank() -> CaptureObservationResult.InvalidInput(FIELD_OBSERVATION, "missing")
+    isRoutineNoise(args.observation.trim()) -> CaptureObservationResult.Decided(
+      decision = CaptureObservationDecision.Rejected,
+      reason = "routine_or_transient_observation",
+    )
+    args.shouldRouteToSensitiveStaging() -> captureSensitiveObservation(args, args.observation.trim())
+    shouldStage(args, args.observation.trim()) -> {
+      captureStagedObservation(args, args.observation.trim(), "insufficient_durable_structure")
+    }
+    shouldCaptureEpisode(args) -> captureEpisodeObservation(args, args.observation.trim())
+    else -> captureStateObservation(args, args.observation.trim())
+  }
 
   override suspend fun writeStateObservation(args: WriteStateArgs): CaptureResult {
     val now = clock.now()
@@ -125,6 +143,117 @@ class PersonalGraphVaultCaptureService(
     val ok = validation as FlagSensitiveValidation.Ok
     val moveOutcome = repository.moveNode(ok.sourceId, VaultLayout.BRANCH_STAGING_SENSITIVE)
     return mapMoveOutcome(moveOutcome, ok.sourceId, ok.fallbackId, args.targetPath)
+  }
+
+  private suspend fun captureSensitiveObservation(
+    args: CaptureObservationArgs,
+    observation: String,
+  ): CaptureObservationResult {
+    val id = args.id ?: generatedObservationId(observation)
+    val result = writeStateObservation(
+      WriteStateArgs(
+        id = id,
+        category = args.category ?: StateCategory.Knowledge,
+        confidence = Confidence.Low,
+        body = observationBody(observation, args.sourceContext),
+        links = args.links,
+        sensitive = true,
+      ),
+    )
+    return CaptureObservationResult.Decided(
+      decision = CaptureObservationDecision.StagedSensitive,
+      reason = "candidate_marked_or_detected_sensitive",
+      captureResult = result,
+    )
+  }
+
+  private suspend fun captureStagedObservation(
+    args: CaptureObservationArgs,
+    observation: String,
+    reason: String,
+  ): CaptureObservationResult {
+    val result = writeToStaging(
+      WriteToStagingArgs(
+        id = args.id ?: generatedObservationId(observation),
+        category = args.category ?: inferStateCategory(observation),
+        confidence = Confidence.Low,
+        body = observationBody(observation, args.sourceContext),
+        links = args.links,
+      ),
+    )
+    return CaptureObservationResult.Decided(
+      decision = CaptureObservationDecision.StagedObservation,
+      reason = reason,
+      captureResult = result,
+    )
+  }
+
+  private suspend fun captureEpisodeObservation(
+    args: CaptureObservationArgs,
+    observation: String,
+  ): CaptureObservationResult {
+    val episode = args.validatedEpisodeCandidate()
+      ?: return captureStagedObservation(args, observation, args.episodeCandidateMissingReason())
+    val id = args.id ?: generatedObservationId(episode.topic)
+    val targetId = parseNodeId(buildEpisodeTargetId(episode.domain, id))
+      ?: return CaptureObservationResult.InvalidInput(FIELD_ID, "computed episode id is invalid")
+    val existing = repository.findNode(targetId)
+    val result = writeEpisode(
+      WriteEpisodeArgs(
+        id = id,
+        date = episode.date,
+        episodeType = episode.episodeType,
+        domain = episode.domain,
+        topic = episode.topic,
+        intensity = episode.intensity,
+        body = observationBody(observation, args.sourceContext),
+        linked = args.links,
+        sensitive = false,
+      ),
+    )
+    return CaptureObservationResult.Decided(
+      decision = if (existing == null) {
+        CaptureObservationDecision.EpisodeWritten
+      } else {
+        CaptureObservationDecision.EpisodeUpdated
+      },
+      reason = "candidate_accepted_as_episode",
+      captureResult = result,
+    )
+  }
+
+  private suspend fun captureStateObservation(
+    args: CaptureObservationArgs,
+    observation: String,
+  ): CaptureObservationResult {
+    val category = args.category ?: inferStateCategory(observation)
+    val confidence = args.confidence ?: inferConfidence(observation, category)
+    if (confidence == Confidence.Low) {
+      return captureStagedObservation(args, observation, "low_confidence_candidate")
+    }
+    val id = args.id ?: generatedObservationId(observation)
+    val targetId = parseNodeId(buildStateTargetId(id, category))
+      ?: return CaptureObservationResult.InvalidInput(FIELD_ID, "computed state id is invalid")
+    val existing = repository.findNode(targetId)
+    val result = writeStateObservation(
+      WriteStateArgs(
+        id = id,
+        category = category,
+        confidence = confidence,
+        body = observationBody(observation, args.sourceContext),
+        links = args.links,
+        sensitive = false,
+      ),
+    )
+    return CaptureObservationResult.Decided(
+      decision = if (existing == null) {
+        CaptureObservationDecision.StateWritten
+      } else {
+        CaptureObservationDecision.StateUpdated
+      },
+      reason = "candidate_accepted_as_state",
+      captureResult = result,
+    )
   }
 
   private suspend fun validateFlagSensitive(args: FlagSensitiveArgs): FlagSensitiveValidation {
@@ -407,6 +536,7 @@ private val SLUG_NORMALIZE_REGEX: Regex = Regex("[^a-z0-9]+")
 private const val SLUG_FALLBACK: String = "untitled"
 private const val MAX_SUBJECT_EVIDENCE_SUMMARY_LENGTH: Int = 140
 private const val REASON_PEOPLE_BLOCKED: String = "people/ is read-blocked by default"
+private const val FIELD_OBSERVATION: String = "observation"
 private const val FIELD_ID: String = "id"
 private const val FIELD_TARGET_PATH: String = "target_path"
 private const val FIELD_PAYLOAD_KIND: String = "payload_kind"

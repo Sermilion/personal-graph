@@ -5,6 +5,7 @@ import com.sermilion.personalgraph.domain.layout.VaultLayout
 object ToolSchemas {
 
   const val TOOL_WRITE_STATE: String = "write_state"
+  const val TOOL_CAPTURE_OBSERVATION: String = "capture_observation"
   const val TOOL_WRITE_EPISODE: String = "write_episode"
   const val TOOL_WRITE_TO_STAGING: String = "write_to_staging"
   const val TOOL_FLAG_SENSITIVE: String = "flag_sensitive"
@@ -14,6 +15,8 @@ object ToolSchemas {
   const val TOOL_SESSION_START: String = "session_start"
 
   const val DESC_WRITE_STATE: String = "Write or update a state node (Tier 1 capture for durable facts)."
+  const val DESC_CAPTURE_OBSERVATION: String =
+    "Submit a candidate observation. Personal-graph decides whether to reject, stage, save, or update it."
   const val DESC_WRITE_EPISODE: String =
     "Write or update an episode node, append it to a canonical subject hub, and create a timeline backlink stub."
   const val DESC_WRITE_TO_STAGING: String = "Write a state-shaped observation to staging/observations/."
@@ -45,6 +48,9 @@ object ToolSchemas {
       "rejected with invalid_input."
 
   const val KEY_ID: String = "id"
+  const val KEY_OBSERVATION: String = "observation"
+  const val KEY_SOURCE_CONTEXT: String = "source_context"
+  const val KEY_SUGGESTED_KIND: String = "suggested_kind"
   const val KEY_MESSAGE: String = "message"
   const val KEY_TOPIC: String = "topic"
   const val KEY_BODY: String = "body"
@@ -62,6 +68,7 @@ object ToolSchemas {
   const val KEY_PAYLOAD_KIND: String = "payload_kind"
   const val KEY_BRANCH: String = "branch"
   const val KEY_REASON: String = "reason"
+  const val KEY_DECISION: String = "decision"
   const val KEY_STATUS: String = "status"
   const val KEY_PATH: String = "path"
   const val KEY_NODE: String = "node"
@@ -144,4 +151,14 @@ object ToolSchemas {
     PAYLOAD_KIND_SUBJECT,
     PAYLOAD_KIND_EMOTIONAL_STATE,
   )
+
+  val ENUM_CAPTURE_OBSERVATION_KINDS: List<String> = listOf(PAYLOAD_KIND_STATE, PAYLOAD_KIND_EPISODE)
+
+  const val DECISION_REJECTED: String = "rejected"
+  const val DECISION_STAGED_OBSERVATION: String = "staged_observation"
+  const val DECISION_STAGED_SENSITIVE: String = "staged_sensitive"
+  const val DECISION_STATE_WRITTEN: String = "state_written"
+  const val DECISION_STATE_UPDATED: String = "state_updated"
+  const val DECISION_EPISODE_WRITTEN: String = "episode_written"
+  const val DECISION_EPISODE_UPDATED: String = "episode_updated"
 }

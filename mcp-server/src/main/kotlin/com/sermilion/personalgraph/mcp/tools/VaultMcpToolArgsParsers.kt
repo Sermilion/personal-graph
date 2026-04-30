@@ -1,5 +1,7 @@
 package com.sermilion.personalgraph.mcp.tools
 
+import com.sermilion.personalgraph.domain.capture.CaptureObservationArgs
+import com.sermilion.personalgraph.domain.capture.CaptureObservationKind
 import com.sermilion.personalgraph.domain.capture.FlagSensitiveArgs
 import com.sermilion.personalgraph.domain.capture.WriteEpisodeArgs
 import com.sermilion.personalgraph.domain.capture.WriteStateArgs
@@ -56,6 +58,33 @@ internal fun parseStateCore(args: JsonObject): Parsed<StateCore> {
     confidence == null -> Parsed.Failure(invalidInputJson(ToolSchemas.KEY_CONFIDENCE, REASON_INVALID))
     else -> Parsed.Success(StateCore(id, category, confidence))
   }
+}
+
+internal fun parseCaptureObservationArgs(args: JsonObject): Parsed<CaptureObservationArgs> {
+  val observation = args.stringOrNull(ToolSchemas.KEY_OBSERVATION)
+    ?: return Parsed.Failure(invalidInputJson(ToolSchemas.KEY_OBSERVATION, REASON_MISSING))
+  val suggestedKindRaw = args.stringOrNull(ToolSchemas.KEY_SUGGESTED_KIND)
+  val suggestedKind = suggestedKindRaw?.let(::parseCaptureObservationKind)
+  if (suggestedKindRaw != null && suggestedKind == null) {
+    return Parsed.Failure(invalidInputJson(ToolSchemas.KEY_SUGGESTED_KIND, REASON_INVALID))
+  }
+  return Parsed.Success(
+    CaptureObservationArgs(
+      observation = observation,
+      sourceContext = args.stringOrNull(ToolSchemas.KEY_SOURCE_CONTEXT).orEmpty(),
+      suggestedKind = suggestedKind,
+      id = args.stringOrNull(ToolSchemas.KEY_ID),
+      category = args.stringOrNull(ToolSchemas.KEY_CATEGORY)?.let(::parseStateCategory),
+      confidence = args.stringOrNull(ToolSchemas.KEY_CONFIDENCE)?.let(::parseConfidence),
+      date = args.stringOrNull(ToolSchemas.KEY_DATE)?.let(::parseInstant),
+      episodeType = args.stringOrNull(ToolSchemas.KEY_EPISODE_TYPE)?.let(::parseEpisodeType),
+      domain = args.stringOrNull(ToolSchemas.KEY_DOMAIN),
+      topic = args.stringOrNull(ToolSchemas.KEY_TOPIC),
+      intensity = args.stringOrNull(ToolSchemas.KEY_INTENSITY)?.let(::parseIntensity),
+      links = args.stringListOrNull(ToolSchemas.KEY_LINKS).orEmpty().toNodeIds(),
+      sensitive = args.booleanOrNull(ToolSchemas.KEY_SENSITIVE) == true,
+    ),
+  )
 }
 
 internal fun parseWriteStateArgs(args: JsonObject): Parsed<WriteStateArgs> = when (val core = parseStateCore(args)) {
@@ -178,6 +207,12 @@ private fun resolveFlagSensitiveSuccess(args: JsonObject, targetPath: String): P
   val payloadKindRaw = args.stringOrNull(ToolSchemas.KEY_PAYLOAD_KIND) ?: ToolSchemas.PAYLOAD_KIND_STATE
   val payloadKind = checkNotNull(parsePayloadKind(payloadKindRaw))
   return Parsed.Success(FlagSensitiveArgs(targetPath = targetPath, payloadKind = payloadKind))
+}
+
+private fun parseCaptureObservationKind(raw: String): CaptureObservationKind? = when (raw.lowercase()) {
+  ToolSchemas.PAYLOAD_KIND_STATE -> CaptureObservationKind.State
+  ToolSchemas.PAYLOAD_KIND_EPISODE -> CaptureObservationKind.Episode
+  else -> null
 }
 
 internal fun permissionDeniedReadBlocked(rawId: String): JsonObject = statusJson(

@@ -1,5 +1,9 @@
 package com.sermilion.personalgraph.data.capture
 
+import com.sermilion.personalgraph.domain.capture.CaptureObservationArgs
+import com.sermilion.personalgraph.domain.capture.CaptureObservationDecision
+import com.sermilion.personalgraph.domain.capture.CaptureObservationKind
+import com.sermilion.personalgraph.domain.capture.CaptureObservationResult
 import com.sermilion.personalgraph.domain.capture.CaptureResult
 import com.sermilion.personalgraph.domain.capture.FlagSensitiveArgs
 import com.sermilion.personalgraph.domain.capture.PayloadKind
@@ -306,6 +310,121 @@ class PersonalGraphVaultCaptureServiceTest :
       coVerify(exactly = 0) { repo.writeNode(any()) }
     }
 
+    test("captureObservation rejects routine transient noise without writing") {
+      val (service, repo) = newService()
+
+      val result = service.captureObservation(
+        CaptureObservationArgs(
+          observation = "ran tests",
+          sourceContext = "local check",
+          suggestedKind = null,
+          id = null,
+          category = null,
+          confidence = null,
+          date = null,
+          episodeType = null,
+          domain = null,
+          topic = null,
+          intensity = null,
+          links = emptyList(),
+          sensitive = false,
+        ),
+      )
+
+      result.shouldBeInstanceOf<CaptureObservationResult.Decided>()
+      result.decision shouldBe CaptureObservationDecision.Rejected
+      coVerify(exactly = 0) { repo.writeNode(any()) }
+    }
+
+    test("captureObservation writes reusable preference candidates as state") {
+      val (service, repo) = newService()
+      val captured = slot<StateNode>()
+      coEvery { repo.findNode(any()) } returns null
+      coEvery { repo.writeNode(capture(captured)) } returns WriteOutcome.Applied
+
+      val result = service.captureObservation(
+        CaptureObservationArgs(
+          observation = "Braian prefers personal-graph as the source of truth for memory filtering.",
+          sourceContext = "design discussion",
+          suggestedKind = null,
+          id = null,
+          category = null,
+          confidence = null,
+          date = null,
+          episodeType = null,
+          domain = null,
+          topic = null,
+          intensity = null,
+          links = emptyList(),
+          sensitive = false,
+        ),
+      )
+
+      result.shouldBeInstanceOf<CaptureObservationResult.Decided>()
+      result.decision shouldBe CaptureObservationDecision.StateWritten
+      captured.captured.id.value shouldBe
+        "state/preferences/braian-prefers-personal-graph-source-truth-memory-filtering"
+      captured.captured.confidence shouldBe Confidence.High
+      captured.captured.body shouldContain "Source context: design discussion"
+    }
+
+    test("captureObservation stages low-confidence candidates instead of saving as durable state") {
+      val (service, repo) = newService()
+      val captured = slot<StateNode>()
+      coEvery { repo.writeNode(capture(captured)) } returns WriteOutcome.Applied
+
+      val result = service.captureObservation(
+        CaptureObservationArgs(
+          observation = "Maybe this might matter later.",
+          sourceContext = "uncertain session note",
+          suggestedKind = null,
+          id = "maybe-later",
+          category = StateCategory.Knowledge,
+          confidence = Confidence.Low,
+          date = null,
+          episodeType = null,
+          domain = null,
+          topic = null,
+          intensity = null,
+          links = emptyList(),
+          sensitive = false,
+        ),
+      )
+
+      result.shouldBeInstanceOf<CaptureObservationResult.Decided>()
+      result.decision shouldBe CaptureObservationDecision.StagedObservation
+      captured.captured.id.value shouldBe "staging/observations/maybe-later"
+    }
+
+    test("captureObservation routes sensitive candidates to sensitive staging") {
+      val (service, repo) = newService()
+      val captured = slot<StateNode>()
+      coEvery { repo.writeNode(capture(captured)) } returns WriteOutcome.Applied
+
+      val result = service.captureObservation(
+        CaptureObservationArgs(
+          observation = "API key: abcdefghijklmnop should not be stored as durable knowledge.",
+          sourceContext = "secret-bearing candidate",
+          suggestedKind = null,
+          id = "api-key",
+          category = null,
+          confidence = null,
+          date = null,
+          episodeType = null,
+          domain = null,
+          topic = null,
+          intensity = null,
+          links = emptyList(),
+          sensitive = false,
+        ),
+      )
+
+      result.shouldBeInstanceOf<CaptureObservationResult.Decided>()
+      result.decision shouldBe CaptureObservationDecision.StagedSensitive
+      captured.captured.id.value shouldBe "staging/sensitive/api-key"
+      captured.captured.confidence shouldBe Confidence.Low
+    }
+
     test("writeEpisode creates a canonical subject hub and timeline stub") {
       val (service, repo) = newService()
       val captured = mutableListOf<com.sermilion.personalgraph.domain.model.VaultNode>()
@@ -400,5 +519,35 @@ class PersonalGraphVaultCaptureServiceTest :
 
       result.shouldBeInstanceOf<CaptureResult.Created>()
       result.backlinkId?.value shouldBe "timeline/2026-04/2026-04-24-build-pipeline"
+    }
+
+    test("captureObservation writes complete episode candidates as episodes") {
+      val (service, repo) = newService()
+      coEvery { repo.findNode(NodeId("domains/work/personal-graph/events/candidate-ingest-boundary")) } returns null
+      coEvery { repo.writeNode(any()) } returns WriteOutcome.Applied
+      coEvery { repo.findSubjectHub(any(), any(), any()) } returns null
+
+      val result = service.captureObservation(
+        CaptureObservationArgs(
+          observation = "Decided personal-graph owns capture filtering instead of every caller.",
+          sourceContext = "personal-graph design session",
+          suggestedKind = CaptureObservationKind.Episode,
+          id = "candidate-ingest-boundary",
+          category = null,
+          confidence = null,
+          date = VaultNodeFixtures.episodeInstant,
+          episodeType = EpisodeType.Decision,
+          domain = "work/personal-graph",
+          topic = "Candidate ingest boundary",
+          intensity = Intensity.Medium,
+          links = emptyList(),
+          sensitive = false,
+        ),
+      )
+
+      result.shouldBeInstanceOf<CaptureObservationResult.Decided>()
+      result.decision shouldBe CaptureObservationDecision.EpisodeWritten
+      val capture = result.captureResult.shouldBeInstanceOf<CaptureResult.Created>()
+      capture.id.value shouldBe "domains/work/personal-graph/events/candidate-ingest-boundary"
     }
   })

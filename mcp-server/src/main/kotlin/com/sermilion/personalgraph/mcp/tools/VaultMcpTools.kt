@@ -32,6 +32,11 @@ class VaultMcpTools(
     is Parsed.Success -> captureService.writeStateObservation(parsed.value).toJson()
   }
 
+  suspend fun captureObservation(args: JsonObject): JsonObject = when (val parsed = parseCaptureObservationArgs(args)) {
+    is Parsed.Failure -> parsed.json
+    is Parsed.Success -> captureService.captureObservation(parsed.value).toJson()
+  }
+
   suspend fun writeEpisode(args: JsonObject): JsonObject = when (val parsed = parseWriteEpisodeArgs(args)) {
     is Parsed.Failure -> parsed.json
     is Parsed.Success -> captureService.writeEpisode(parsed.value).toJson()

@@ -21,6 +21,36 @@ internal object ToolSchemaBuilder {
     ),
   )
 
+  fun captureObservationSchema(): ToolSchema = ToolSchema(
+    properties = buildJsonObject {
+      put(
+        ToolSchemas.KEY_OBSERVATION,
+        ToolSchemaProperties.string(
+          "Candidate memory text. Personal-graph owns the save, stage, update, or reject decision.",
+        ),
+      )
+      put(ToolSchemas.KEY_SOURCE_CONTEXT, ToolSchemaProperties.string("Short source context for provenance."))
+      put(
+        ToolSchemas.KEY_SUGGESTED_KIND,
+        ToolSchemaProperties.enum(
+          ToolSchemas.ENUM_CAPTURE_OBSERVATION_KINDS,
+          "Optional caller hint only; personal-graph may ignore it.",
+        ),
+      )
+      put(ToolSchemas.KEY_ID, ToolSchemaProperties.string("Optional id hint. Personal-graph can generate one."))
+      put(ToolSchemas.KEY_CATEGORY, ToolSchemaProperties.enum(ToolSchemas.ENUM_STATE_CATEGORIES))
+      put(ToolSchemas.KEY_CONFIDENCE, ToolSchemaProperties.enum(ToolSchemas.ENUM_CONFIDENCES))
+      put(ToolSchemas.KEY_DATE, ToolSchemaProperties.string(ToolSchemas.DESC_FIELD_DATE))
+      put(ToolSchemas.KEY_EPISODE_TYPE, ToolSchemaProperties.enum(ToolSchemas.ENUM_EPISODE_TYPES))
+      put(ToolSchemas.KEY_DOMAIN, ToolSchemaProperties.string())
+      put(ToolSchemas.KEY_TOPIC, ToolSchemaProperties.string())
+      put(ToolSchemas.KEY_INTENSITY, ToolSchemaProperties.enum(ToolSchemas.ENUM_INTENSITIES))
+      put(ToolSchemas.KEY_LINKS, ToolSchemaProperties.stringArray(ToolSchemas.DESC_FIELD_LINKS))
+      put(ToolSchemas.KEY_SENSITIVE, ToolSchemaProperties.boolean())
+    },
+    required = listOf(ToolSchemas.KEY_OBSERVATION),
+  )
+
   fun writeEpisodeSchema(): ToolSchema = ToolSchema(
     properties = buildJsonObject {
       put(ToolSchemas.KEY_ID, ToolSchemaProperties.string(ToolSchemas.DESC_FIELD_NODE_ID))

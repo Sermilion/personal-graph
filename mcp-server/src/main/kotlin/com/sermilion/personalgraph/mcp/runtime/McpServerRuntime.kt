@@ -71,6 +71,11 @@ object McpServerRuntime {
       inputSchema = ToolSchemaBuilder.writeStateSchema(),
     ) { request -> tools.writeState(request.arguments ?: emptyJsonObject).asResult() }
     server.addTool(
+      name = ToolSchemas.TOOL_CAPTURE_OBSERVATION,
+      description = ToolSchemas.DESC_CAPTURE_OBSERVATION,
+      inputSchema = ToolSchemaBuilder.captureObservationSchema(),
+    ) { request -> tools.captureObservation(request.arguments ?: emptyJsonObject).asResult() }
+    server.addTool(
       name = ToolSchemas.TOOL_WRITE_EPISODE,
       description = ToolSchemas.DESC_WRITE_EPISODE,
       inputSchema = ToolSchemaBuilder.writeEpisodeSchema(),

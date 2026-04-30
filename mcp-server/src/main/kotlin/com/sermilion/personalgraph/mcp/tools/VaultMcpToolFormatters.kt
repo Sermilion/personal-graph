@@ -1,6 +1,8 @@
 package com.sermilion.personalgraph.mcp.tools
 
 import com.sermilion.personalgraph.domain.capture.BacklinkStatus
+import com.sermilion.personalgraph.domain.capture.CaptureObservationDecision
+import com.sermilion.personalgraph.domain.capture.CaptureObservationResult
 import com.sermilion.personalgraph.domain.capture.CaptureResult
 import com.sermilion.personalgraph.domain.capture.SubjectHubStatus
 import com.sermilion.personalgraph.domain.model.EmotionalStateNode
@@ -17,6 +19,7 @@ import com.sermilion.personalgraph.domain.retrieval.RetrievedRootDocument
 import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalReport
 import com.sermilion.personalgraph.domain.retrieval.SkippedBranch
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -159,6 +162,45 @@ internal fun CaptureResult.toJson(): JsonObject = when (this) {
     ToolSchemas.STATUS_FAILED,
     mapOf(ToolSchemas.KEY_REASON to reason),
   )
+}
+
+internal fun CaptureObservationResult.toJson(): JsonObject = when (this) {
+  is CaptureObservationResult.Decided -> captureObservationDecisionToJson(this)
+  is CaptureObservationResult.InvalidInput -> invalidInputJson(field, reason)
+}
+
+private fun captureObservationDecisionToJson(result: CaptureObservationResult.Decided): JsonObject = buildJsonObject {
+  put(ToolSchemas.KEY_STATUS, JsonPrimitive(ToolSchemas.STATUS_OK))
+  put(ToolSchemas.KEY_DECISION, JsonPrimitive(result.decision.toWireValue()))
+  put(ToolSchemas.KEY_REASON, JsonPrimitive(result.reason))
+  val captureJson = result.captureResult?.toJson()
+  if (captureJson != null) {
+    copyIfPresent(captureJson, ToolSchemas.KEY_PATH)
+    copyIfPresent(captureJson, ToolSchemas.KEY_BACKLINK_PATH)
+    copyIfPresent(captureJson, ToolSchemas.KEY_BACKLINK_STATUS)
+    copyIfPresent(captureJson, ToolSchemas.KEY_SUBJECT_HUB_PATH)
+    copyIfPresent(captureJson, ToolSchemas.KEY_SUBJECT_HUB_STATUS)
+    if ((captureJson[ToolSchemas.KEY_STATUS] as? JsonPrimitive)?.content != ToolSchemas.STATUS_OK) {
+      put(ToolSchemas.KEY_STATUS, JsonPrimitive(ToolSchemas.STATUS_FAILED))
+      copyIfPresent(captureJson, ToolSchemas.KEY_FIELD)
+      copyIfPresent(captureJson, ToolSchemas.KEY_EXPECTED)
+      copyIfPresent(captureJson, ToolSchemas.KEY_REASON)
+    }
+  }
+}
+
+private fun JsonObjectBuilder.copyIfPresent(source: JsonObject, key: String) {
+  source[key]?.let { put(key, it) }
+}
+
+private fun CaptureObservationDecision.toWireValue(): String = when (this) {
+  CaptureObservationDecision.Rejected -> ToolSchemas.DECISION_REJECTED
+  CaptureObservationDecision.StagedObservation -> ToolSchemas.DECISION_STAGED_OBSERVATION
+  CaptureObservationDecision.StagedSensitive -> ToolSchemas.DECISION_STAGED_SENSITIVE
+  CaptureObservationDecision.StateWritten -> ToolSchemas.DECISION_STATE_WRITTEN
+  CaptureObservationDecision.StateUpdated -> ToolSchemas.DECISION_STATE_UPDATED
+  CaptureObservationDecision.EpisodeWritten -> ToolSchemas.DECISION_EPISODE_WRITTEN
+  CaptureObservationDecision.EpisodeUpdated -> ToolSchemas.DECISION_EPISODE_UPDATED
 }
 
 private fun createdToJson(result: CaptureResult.Created): JsonObject = buildJsonObject {
