@@ -12,7 +12,7 @@ Stage 1 shipped. The CLI scaffolds an Obsidian-compatible vault on demand (`pers
 
 - **Local-first.** The vault lives on disk only. Cloud sync is deferred.
 - **Normalized graph.** Cross-cutting observations are extracted into their own pattern nodes and referenced by wikilink from each domain where they appear. No duplicated descriptions.
-- **Reuse-first capture.** Agents should look for a relevant existing note before creating a new one. Durable state and pattern notes should be named for reusable concepts, while exact incident names belong mainly to dated episode/evidence nodes.
+- **Reuse-first capture.** Agents should look for a relevant existing note before creating a new one. Durable state and pattern notes should be named for reusable concepts, while exact incident names belong mainly to dated episode/evidence nodes. When a write replaces an existing graph path, the previous version is archived under `outdated/resolved/` instead of being silently deleted.
 - **Evidence over labels.** Entries that shape future agent behavior (knowledge state, emotional state, patterns) must be specific dated incidents with hypotheses — never compressed personality labels.
 - **Confidence-gated writes.** High-confidence observations land in permanent branches; lower-confidence observations land in `staging/` and graduate only after repetition or explicit promotion.
 - **Async sensitivity handling.** Agents never pause mid-conversation to ask whether to log. Potentially sensitive episodes go to `staging/sensitive/` for batch review.
@@ -102,7 +102,7 @@ mcp-server/build/install/personal-graph-mcp-server/bin/personal-graph-mcp-server
 
 Register that binary with your AI tool's MCP configuration. The server exposes the Stage 1 capture/read tools plus Stage 3 retrieval:
 
-- `write_state`, `write_episode`, `write_to_staging` — Tier 1 capture. `write_episode` also reuses or appends to a canonical subject hub and writes only a timeline index stub.
+- `write_state`, `write_episode`, `write_to_staging` — Tier 1 capture. Existing target paths are archived under `outdated/resolved/` before replacement and returned as `archived_paths`; `write_episode` also reuses or appends to a canonical subject hub and writes only a timeline index stub.
 - `flag_sensitive`, `list_pending_sensitive` — sensitivity routing for batch disposition.
 - `read_node`, `list_branch` — explicit full-body follow-up reads. `people/` is read-blocked by default; reads outside the vault root or outside whitelisted branches are rejected.
 - `session_start` — audited map-first retrieval of bounded `Braian.md` context, classification metadata, `available_map`, `suggested_reads`, skips, and audit reasons. `retrieval_mode=full-loading` remains the explicit opt-in compatibility path for loaded node bodies.

@@ -14,11 +14,14 @@ object ToolSchemas {
   const val TOOL_LIST_BRANCH: String = "list_branch"
   const val TOOL_SESSION_START: String = "session_start"
 
-  const val DESC_WRITE_STATE: String = "Write or update a state node (Tier 1 capture for durable facts)."
+  const val DESC_WRITE_STATE: String =
+    "Write or update a state node (Tier 1 capture for durable facts). " +
+      "If the target already exists, the prior version is archived under outdated/resolved/."
   const val DESC_CAPTURE_OBSERVATION: String =
     "Submit a candidate observation. Personal-graph decides whether to reject, stage, save, or update it."
   const val DESC_WRITE_EPISODE: String =
-    "Write or update an episode node, append it to a canonical subject hub, and create a timeline backlink stub."
+    "Write or update an episode node, append it to a canonical subject hub, and create a timeline backlink stub. " +
+      "If the target already exists, the prior version is archived under outdated/resolved/."
   const val DESC_WRITE_TO_STAGING: String = "Write a state-shaped observation to staging/observations/."
   const val DESC_FLAG_SENSITIVE: String = "Re-route an existing or inline node to staging/sensitive/ for batch review."
   const val DESC_LIST_PENDING_SENSITIVE: String =
@@ -92,6 +95,7 @@ object ToolSchemas {
   const val KEY_BACKLINK_STATUS: String = "backlink_status"
   const val KEY_SUBJECT_HUB_PATH: String = "subject_hub_path"
   const val KEY_SUBJECT_HUB_STATUS: String = "subject_hub_status"
+  const val KEY_ARCHIVED_PATHS: String = "archived_paths"
   const val KEY_FIELD: String = "field"
   const val KEY_EXPECTED: String = "expected"
   const val KEY_INCLUDE_EXCERPTS: String = "include_excerpts"

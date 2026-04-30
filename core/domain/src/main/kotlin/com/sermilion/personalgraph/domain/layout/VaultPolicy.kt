@@ -9,6 +9,7 @@ object VaultPolicy {
     VaultLayout.BRANCH_EMOTIONAL_STATES,
     VaultLayout.BRANCH_TIMELINE,
     VaultLayout.BRANCH_STAGING,
+    VaultLayout.BRANCH_OUTDATED,
   )
 
   val READ_BLOCKED_BRANCH_PREFIXES: Set<String> = setOf(
@@ -22,6 +23,7 @@ object VaultPolicy {
     VaultLayout.BRANCH_EMOTIONAL_STATES,
     VaultLayout.BRANCH_TIMELINE,
     VaultLayout.BRANCH_STAGING,
+    VaultLayout.BRANCH_OUTDATED,
   )
 
   fun isWriteAllowed(branchOrPath: String): Boolean = matchesPrefix(branchOrPath, WHITELISTED_WRITE_BRANCH_PREFIXES)

@@ -1,5 +1,14 @@
 # core/data — history
 
+## [2026-04-30] capture-replacement-archive (PG-5 follow-up)
+Areas: core/domain (layout/policy/capture result), core/data (capture archive/scaffold/tests), mcp-server (write result JSON/schema docs), README
+- Capture writes now preserve previous versions when replacing the same graph path by writing an archive copy under `outdated/resolved/<original-path>/<timestamp-hash>` before overwriting the active node
+- MCP write results expose `archived_paths` so agents can see which stale memory versions were resolved by the new write
+- `outdated/resolved/` is scaffolded and read/write allowed, but `staging/sensitive/` replacements are intentionally not copied there to avoid moving sensitive content into a readable archive branch
+- Archive bodies keep the original content with a short header naming the original path, archive time, and superseding path; the active graph path still contains only the new body
+Feature flag: N/A
+Acceptance criteria: follow-up implemented
+
 ## [2026-04-30] map-first-adapter-contract-tests (PG-5)
 Areas: core/domain (retrieval report), core/data (map-first output), mcp-server (session_start JSON/schema), cli (session-start output), docs/tests
 - `SessionStartRetrievalReport` now exposes canonical `loadedContext`, `availableMap`, and `suggestedReads`; old loaded-branch/node fields remain in-process compatibility only, while MCP default output omits broad body fields

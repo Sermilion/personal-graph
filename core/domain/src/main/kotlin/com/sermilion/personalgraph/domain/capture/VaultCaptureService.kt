@@ -89,6 +89,7 @@ enum class PayloadKind {
 sealed interface CaptureResult {
   data class Created(
     val id: NodeId,
+    val archivedIds: List<NodeId> = emptyList(),
     val backlinkId: NodeId? = null,
     val backlinkStatus: BacklinkStatus = BacklinkStatus.Skipped,
     val subjectHubId: NodeId? = null,

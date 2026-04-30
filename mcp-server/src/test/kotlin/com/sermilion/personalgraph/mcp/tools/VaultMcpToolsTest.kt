@@ -94,6 +94,28 @@ class VaultMcpToolsTest :
       coVerify(exactly = 1) { ctx.capture.writeStateObservation(any()) }
     }
 
+    test("write_state reports archived paths when a previous memory version was resolved") {
+      val ctx = newTools()
+      coEvery { ctx.capture.writeStateObservation(any()) } returns CaptureResult.Created(
+        id = NodeId("state/preferences/editor-indent"),
+        archivedIds = listOf(NodeId("outdated/resolved/state/preferences/editor-indent/2026-04-25t10-00-00z")),
+      )
+
+      val args = buildJsonObject {
+        put(ToolSchemas.KEY_ID, JsonPrimitive("editor-indent"))
+        put(ToolSchemas.KEY_CATEGORY, JsonPrimitive("preference"))
+        put(ToolSchemas.KEY_CONFIDENCE, JsonPrimitive("medium"))
+        put(ToolSchemas.KEY_BODY, JsonPrimitive("Use 2 spaces."))
+      }
+
+      val result = ctx.tools.writeState(args)
+
+      val archivedPaths = result[ToolSchemas.KEY_ARCHIVED_PATHS].shouldBeInstanceOf<JsonArray>()
+      archivedPaths.map { (it as JsonPrimitive).content } shouldBe listOf(
+        "outdated/resolved/state/preferences/editor-indent/2026-04-25t10-00-00z",
+      )
+    }
+
     test("write_state with non-string id is rejected with invalid_input") {
       val ctx = newTools()
       val args = buildJsonObject {

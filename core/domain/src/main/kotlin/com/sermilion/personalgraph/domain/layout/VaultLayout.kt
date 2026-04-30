@@ -8,6 +8,7 @@ object VaultLayout {
   const val BRANCH_EMOTIONAL_STATES: String = "emotional-states"
   const val BRANCH_TIMELINE: String = "timeline"
   const val BRANCH_STAGING: String = "staging"
+  const val BRANCH_OUTDATED: String = "outdated"
   const val BRANCH_PEOPLE: String = "people"
 
   const val SUB_STATE_PREFERENCES: String = "preferences"
@@ -18,6 +19,7 @@ object VaultLayout {
 
   const val SUB_STAGING_OBSERVATIONS: String = "observations"
   const val SUB_STAGING_SENSITIVE: String = "sensitive"
+  const val SUB_OUTDATED_RESOLVED: String = "resolved"
 
   const val BRANCH_STATE_PREFERENCES: String = "$BRANCH_STATE/$SUB_STATE_PREFERENCES"
   const val BRANCH_STATE_ROLES: String = "$BRANCH_STATE/$SUB_STATE_ROLES"
@@ -25,6 +27,7 @@ object VaultLayout {
 
   const val BRANCH_STAGING_OBSERVATIONS: String = "$BRANCH_STAGING/$SUB_STAGING_OBSERVATIONS"
   const val BRANCH_STAGING_SENSITIVE: String = "$BRANCH_STAGING/$SUB_STAGING_SENSITIVE"
+  const val BRANCH_OUTDATED_RESOLVED: String = "$BRANCH_OUTDATED/$SUB_OUTDATED_RESOLVED"
 
   const val BRAIAN_FILENAME: String = "Braian.md"
 
@@ -45,6 +48,7 @@ object VaultLayout {
     BRANCH_TIMELINE,
     BRANCH_STAGING_OBSERVATIONS,
     BRANCH_STAGING_SENSITIVE,
+    BRANCH_OUTDATED_RESOLVED,
     BRANCH_PEOPLE,
   )
 

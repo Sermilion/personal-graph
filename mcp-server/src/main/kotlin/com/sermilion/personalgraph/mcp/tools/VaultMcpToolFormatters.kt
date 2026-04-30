@@ -213,6 +213,7 @@ private fun captureObservationDecisionToJson(result: CaptureObservationResult.De
     copyIfPresent(captureJson, ToolSchemas.KEY_BACKLINK_STATUS)
     copyIfPresent(captureJson, ToolSchemas.KEY_SUBJECT_HUB_PATH)
     copyIfPresent(captureJson, ToolSchemas.KEY_SUBJECT_HUB_STATUS)
+    copyIfPresent(captureJson, ToolSchemas.KEY_ARCHIVED_PATHS)
     if ((captureJson[ToolSchemas.KEY_STATUS] as? JsonPrimitive)?.content != ToolSchemas.STATUS_OK) {
       put(ToolSchemas.KEY_STATUS, JsonPrimitive(ToolSchemas.STATUS_FAILED))
       copyIfPresent(captureJson, ToolSchemas.KEY_FIELD)
@@ -247,6 +248,9 @@ private fun createdToJson(result: CaptureResult.Created): JsonObject = buildJson
   }
   put(ToolSchemas.KEY_BACKLINK_STATUS, JsonPrimitive(backlinkStatusValue))
   result.subjectHubId?.let { put(ToolSchemas.KEY_SUBJECT_HUB_PATH, JsonPrimitive(it.value)) }
+  if (result.archivedIds.isNotEmpty()) {
+    put(ToolSchemas.KEY_ARCHIVED_PATHS, stringArrayJson(result.archivedIds.map { it.value }))
+  }
   val subjectHubStatusValue = when (result.subjectHubStatus) {
     SubjectHubStatus.Created -> ToolSchemas.SUBJECT_HUB_STATUS_CREATED
     SubjectHubStatus.Updated -> ToolSchemas.SUBJECT_HUB_STATUS_UPDATED

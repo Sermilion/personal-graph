@@ -282,9 +282,18 @@ class PersonalGraphVaultCaptureService(
   }
 
   private suspend fun persistPrimary(node: VaultNode): CaptureResult {
+    val archiveResult = CaptureArchive.archiveExistingBeforeReplace(
+      repository = repository,
+      replacement = node,
+      archivedAt = clock.now(),
+    )
+    val archivedIds = when (archiveResult) {
+      is CaptureArchive.Result.Ok -> archiveResult.archivedIds
+      is CaptureArchive.Result.Failed -> return CaptureResult.Failed(archiveResult.reason)
+    }
     val outcome = repository.writeNode(node)
     return when (outcome) {
-      WriteOutcome.Applied -> CaptureResult.Created(id = node.id)
+      WriteOutcome.Applied -> CaptureResult.Created(id = node.id, archivedIds = archivedIds)
       WriteOutcome.NotFound -> CaptureResult.Failed("not_found")
       WriteOutcome.Conflict -> CaptureResult.Failed("conflict")
       is WriteOutcome.Failed -> CaptureResult.Failed(outcome.reason)
