@@ -17,13 +17,15 @@ enum class SessionStartRetrievalMode(val value: String) {
 data class SessionStartRetrievalReport(
   val rootDocument: RetrievedRootDocument?,
   val classification: RetrievalClassification,
-  val loadedBranches: List<RetrievedBranch>,
-  val loadedNodes: List<RetrievedNode>,
-  val skippedBranches: List<SkippedBranch>,
-  val audit: List<RetrievalAuditEntry>,
-  val loadedFullBodyContext: List<LoadedFullBodyContext> = emptyList(),
-  val compactMapEntries: List<CompactMapEntry> = emptyList(),
+  val loadedContext: List<LoadedFullBodyContext> = emptyList(),
+  val availableMap: List<CompactMapEntry> = emptyList(),
   val suggestedReads: List<SuggestedRead> = emptyList(),
+  val skippedBranches: List<SkippedBranch> = emptyList(),
+  val audit: List<RetrievalAuditEntry> = emptyList(),
+  val loadedBranches: List<RetrievedBranch> = emptyList(),
+  val loadedNodes: List<RetrievedNode> = emptyList(),
+  val loadedFullBodyContext: List<LoadedFullBodyContext> = loadedContext,
+  val compactMapEntries: List<CompactMapEntry> = availableMap,
   val auditEntries: List<RetrievalAuditEntry> = audit,
 )
 
@@ -64,6 +66,15 @@ data class RetrievedNode(
   val patternLinks: List<String>,
   val loadOrder: Int,
   val reason: String,
+  val type: String? = null,
+  val category: String? = null,
+  val domain: String? = null,
+  val scope: String? = null,
+  val scopes: List<String> = emptyList(),
+  val updated: String? = null,
+  val date: String? = null,
+  val summary: String? = null,
+  val aliases: List<String> = emptyList(),
 )
 
 data class LoadedFullBodyContext(
@@ -84,6 +95,17 @@ data class CompactMapEntry(
   val kind: CompactMapEntryKind,
   val reason: String,
   val nodeCount: Int? = null,
+  val type: String? = null,
+  val category: String? = null,
+  val domain: String? = null,
+  val scope: String? = null,
+  val scopes: List<String> = emptyList(),
+  val updated: String? = null,
+  val date: String? = null,
+  val summary: String? = null,
+  val aliases: List<String> = emptyList(),
+  val linkCount: Int? = null,
+  val links: List<String> = emptyList(),
 )
 
 enum class CompactMapEntryKind(val value: String) {
@@ -94,7 +116,14 @@ enum class CompactMapEntryKind(val value: String) {
 data class SuggestedRead(
   val id: String,
   val reason: String,
+  val priority: SuggestedReadPriority = SuggestedReadPriority.Medium,
 )
+
+enum class SuggestedReadPriority(val value: String) {
+  High("high"),
+  Medium("medium"),
+  Low("low"),
+}
 
 data class SkippedBranch(
   val branch: String,

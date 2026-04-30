@@ -27,13 +27,14 @@ import com.sermilion.personalgraph.domain.retrieval.RetrievalAuditEntry
 import com.sermilion.personalgraph.domain.retrieval.RetrievalClassification
 import com.sermilion.personalgraph.domain.retrieval.RetrievalDomain
 import com.sermilion.personalgraph.domain.retrieval.RetrievedBranch
-import com.sermilion.personalgraph.domain.retrieval.RetrievedNode
 import com.sermilion.personalgraph.domain.retrieval.RetrievedRootDocument
 import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalMode
 import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalReport
 import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalRequest
 import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalService
 import com.sermilion.personalgraph.domain.retrieval.SkippedBranch
+import com.sermilion.personalgraph.domain.retrieval.SuggestedRead
+import com.sermilion.personalgraph.domain.retrieval.SuggestedReadPriority
 import com.sermilion.personalgraph.testing.VaultNodeFixtures
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
@@ -361,21 +362,11 @@ class VaultMcpToolsTest :
         loadedBranches = listOf(
           RetrievedBranch("domains/work/capmo", "classified work/capmo from first substantive message", 1),
         ),
-        loadedNodes = listOf(
-          RetrievedNode(
-            id = "domains/work/capmo/events/review",
-            body = "Review context.",
-            links = listOf("patterns/review-shape"),
-            patternLinks = emptyList(),
-            loadOrder = 2,
-            reason = "classified work/capmo from first substantive message",
-          ),
-        ),
         skippedBranches = listOf(SkippedBranch("people", "people/ is never loaded by session-start retrieval")),
         audit = listOf(
           RetrievalAuditEntry("classified", "work/capmo", "matched terms: capmo,pr"),
         ),
-        loadedFullBodyContext = listOf(
+        loadedContext = listOf(
           LoadedFullBodyContext(
             id = "Braian.md",
             body = "# Braian\n",
@@ -384,12 +375,28 @@ class VaultMcpToolsTest :
             reason = "root orienting note is always loaded first",
           ),
         ),
-        compactMapEntries = listOf(
+        availableMap = listOf(
           CompactMapEntry(
             id = "domains/work/capmo",
             kind = CompactMapEntryKind.Branch,
             reason = "classified work/capmo from first substantive message",
             nodeCount = 1,
+            type = "branch",
+          ),
+          CompactMapEntry(
+            id = "domains/work/capmo/events/review",
+            kind = CompactMapEntryKind.Node,
+            reason = "classified work/capmo from first substantive message",
+            type = "episode",
+            domain = "work/capmo",
+            summary = "Review context.",
+          ),
+        ),
+        suggestedReads = listOf(
+          SuggestedRead(
+            id = "domains/work/capmo/events/review",
+            reason = "classified work/capmo; event evidence may be useful after map review",
+            priority = SuggestedReadPriority.Medium,
           ),
         ),
       )
@@ -401,14 +408,23 @@ class VaultMcpToolsTest :
       (result[ToolSchemas.KEY_STATUS] as JsonPrimitive).content shouldBe ToolSchemas.STATUS_OK
       val classification = result[ToolSchemas.KEY_CLASSIFICATION] as JsonObject
       (classification[ToolSchemas.KEY_DOMAIN] as JsonPrimitive).content shouldBe "work/capmo"
-      val nodes = result[ToolSchemas.KEY_NODES] as JsonArray
-      ((nodes[0] as JsonObject)[ToolSchemas.KEY_ID] as JsonPrimitive).content shouldBe
-        "domains/work/capmo/events/review"
-      val loadedContext = result[ToolSchemas.KEY_LOADED_FULL_BODY_CONTEXT] as JsonArray
+      result[ToolSchemas.KEY_NODES] shouldBe null
+      result[ToolSchemas.KEY_LOADED_BRANCHES] shouldBe null
+      result[ToolSchemas.KEY_LOADED_FULL_BODY_CONTEXT] shouldBe null
+      result[ToolSchemas.KEY_COMPACT_MAP_ENTRIES] shouldBe null
+      val loadedContext = result[ToolSchemas.KEY_LOADED_CONTEXT] as JsonArray
       ((loadedContext[0] as JsonObject)[ToolSchemas.KEY_SOURCE] as JsonPrimitive).content shouldBe "root"
-      val compactMap = result[ToolSchemas.KEY_COMPACT_MAP_ENTRIES] as JsonArray
+      val compactMap = result[ToolSchemas.KEY_AVAILABLE_MAP] as JsonArray
       ((compactMap[0] as JsonObject)[ToolSchemas.KEY_KIND] as JsonPrimitive).content shouldBe "branch"
-      result[ToolSchemas.KEY_SUGGESTED_READS].shouldBeInstanceOf<JsonArray>().size shouldBe 0
+      ((compactMap[1] as JsonObject)[ToolSchemas.KEY_TYPE] as JsonPrimitive).content shouldBe "episode"
+      ((compactMap[1] as JsonObject)[ToolSchemas.KEY_SUMMARY] as JsonPrimitive).content shouldBe "Review context."
+      val suggestedReads = result[ToolSchemas.KEY_SUGGESTED_READS].shouldBeInstanceOf<JsonArray>()
+      suggestedReads.size shouldBe 1
+      val suggestedRead = suggestedReads[0] as JsonObject
+      (suggestedRead[ToolSchemas.KEY_ID] as JsonPrimitive).content shouldBe "domains/work/capmo/events/review"
+      (suggestedRead[ToolSchemas.KEY_REASON] as JsonPrimitive).content shouldBe
+        "classified work/capmo; event evidence may be useful after map review"
+      (suggestedRead[ToolSchemas.KEY_PRIORITY] as JsonPrimitive).content shouldBe "medium"
       coVerify(exactly = 1) { ctx.retrieval.retrieve(SessionStartRetrievalRequest("review a Capmo PR")) }
     }
 
@@ -509,7 +525,16 @@ class VaultMcpToolsTest :
       val description = (retrievalModeField["description"] as JsonPrimitive).content
 
       description shouldContain "Defaults to map-first"
+      description shouldContain "available_map"
+      description shouldContain "suggested_reads"
       description shouldContain "full-loading"
+    }
+
+    test("tool descriptions document map-first and full-body follow-up path") {
+      ToolSchemas.DESC_SESSION_START shouldContain "Map-first"
+      ToolSchemas.DESC_SESSION_START shouldContain "available_map"
+      ToolSchemas.DESC_READ_NODE shouldContain "full node body"
+      ToolSchemas.DESC_LIST_BRANCH shouldContain "explicit follow-up"
     }
 
     test("flag_sensitive schema describes payload_kind rejection on type mismatch") {

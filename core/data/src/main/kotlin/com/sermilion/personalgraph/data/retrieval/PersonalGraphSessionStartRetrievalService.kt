@@ -12,10 +12,6 @@ import com.sermilion.personalgraph.domain.model.StateNode
 import com.sermilion.personalgraph.domain.model.SubjectNode
 import com.sermilion.personalgraph.domain.model.VaultNode
 import com.sermilion.personalgraph.domain.repository.VaultRepository
-import com.sermilion.personalgraph.domain.retrieval.CompactMapEntry
-import com.sermilion.personalgraph.domain.retrieval.CompactMapEntryKind
-import com.sermilion.personalgraph.domain.retrieval.FullBodyContextSource
-import com.sermilion.personalgraph.domain.retrieval.LoadedFullBodyContext
 import com.sermilion.personalgraph.domain.retrieval.RetrievalAuditEntry
 import com.sermilion.personalgraph.domain.retrieval.RetrievalClassification
 import com.sermilion.personalgraph.domain.retrieval.RetrievalDomain
@@ -86,16 +82,23 @@ class PersonalGraphSessionStartRetrievalService(
       )
     }
 
+    val loadedContext = loadedContext(rootDocument, loadedNodes, request.retrievalMode, audit)
+    val availableMap = availableMap(loadedBranches, loadedNodes, classification)
+    val suggestedReads = suggestedReads(availableMap, classification, audit)
+    audit.add(retrievalModeAudit(request.retrievalMode))
+
     SessionStartRetrievalReport(
       rootDocument = rootDocument,
       classification = classification,
-      loadedBranches = loadedBranches,
-      loadedNodes = loadedNodes,
+      loadedContext = loadedContext,
+      availableMap = availableMap,
+      suggestedReads = suggestedReads,
       skippedBranches = skippedBranches.distinctBy { it.branch },
       audit = audit,
-      loadedFullBodyContext = loadedFullBodyContext(rootDocument, loadedNodes, request.retrievalMode),
-      compactMapEntries = compactMapEntries(loadedBranches, loadedNodes),
-      suggestedReads = emptyList(),
+      loadedBranches = loadedBranches,
+      loadedNodes = if (request.retrievalMode == SessionStartRetrievalMode.FullLoading) loadedNodes else emptyList(),
+      loadedFullBodyContext = loadedContext,
+      compactMapEntries = availableMap,
       auditEntries = audit,
     )
   }
@@ -239,6 +242,8 @@ class PersonalGraphSessionStartRetrievalService(
           null
         }
         else -> {
+          val rawBody = Files.readString(target)
+          val boundedBody = rawBody.limitWords(MAX_LOADED_CONTEXT_WORDS)
           audit.add(
             RetrievalAuditEntry(
               action = "loaded",
@@ -246,9 +251,18 @@ class PersonalGraphSessionStartRetrievalService(
               reason = "root orienting note is always loaded first",
             ),
           )
+          if (boundedBody != rawBody) {
+            audit.add(
+              RetrievalAuditEntry(
+                action = "bounded_loaded_context",
+                subject = VaultLayout.BRAIAN_FILENAME,
+                reason = "root orientation exceeded $MAX_LOADED_CONTEXT_WORDS words and was truncated",
+              ),
+            )
+          }
           RetrievedRootDocument(
             path = VaultLayout.BRAIAN_FILENAME,
-            body = Files.readString(target),
+            body = boundedBody,
             loadOrder = loadOrder,
             reason = "root orienting note is always loaded first",
           )
@@ -362,15 +376,16 @@ class PersonalGraphSessionStartRetrievalService(
     patternLinks = directPatternLinks().map { it.value },
     loadOrder = loadOrder,
     reason = reason,
+    type = mapType(),
+    category = mapCategory(),
+    domain = mapDomain(),
+    scope = mapScope(),
+    scopes = mapScopes(),
+    updated = updatedAt.toDateString(),
+    date = mapDate(),
+    summary = mapSummary(),
+    aliases = mapAliases(),
   )
-
-  private fun VaultNode.directPatternLinks(): List<NodeId> = when (this) {
-    is StateNode -> patternLinks
-    is EpisodeNode -> patternLinks
-    is PatternNode -> patternLinks
-    is SubjectNode -> patternLinks
-    is EmotionalStateNode -> patternLinks
-  }.distinctBy { it.value }
 
   private fun skip(
     branch: String,
@@ -497,74 +512,6 @@ class PersonalGraphSessionStartRetrievalService(
       "mood",
       "feeling",
       "feelings",
-    )
-  }
-}
-
-private fun VaultNode.isVisibleInStateBranch(
-  branch: String,
-  domain: RetrievalDomain,
-): Boolean = !branch.startsWith("${VaultLayout.BRANCH_STATE}/") ||
-  (this as? StateNode)?.isVisibleForRetrievalDomain(domain) != false
-
-private fun StateNode.isVisibleForRetrievalDomain(domain: RetrievalDomain): Boolean {
-  val hasNoScope = scope == null && scopes.isEmpty()
-  val matchesDomain = domain != RetrievalDomain.General &&
-    (scope == domain.value || domain.value in scopes)
-  return hasNoScope || matchesDomain
-}
-
-private fun loadedFullBodyContext(
-  rootDocument: RetrievedRootDocument?,
-  loadedNodes: List<RetrievedNode>,
-  retrievalMode: SessionStartRetrievalMode,
-): List<LoadedFullBodyContext> = buildList {
-  if (rootDocument != null) {
-    add(
-      LoadedFullBodyContext(
-        id = rootDocument.path,
-        body = rootDocument.body,
-        source = FullBodyContextSource.Root,
-        loadOrder = rootDocument.loadOrder,
-        reason = rootDocument.reason,
-      ),
-    )
-  }
-  if (retrievalMode != SessionStartRetrievalMode.FullLoading) return@buildList
-  for (node in loadedNodes) {
-    add(
-      LoadedFullBodyContext(
-        id = node.id,
-        body = node.body,
-        source = FullBodyContextSource.Node,
-        loadOrder = node.loadOrder,
-        reason = node.reason,
-      ),
-    )
-  }
-}
-
-private fun compactMapEntries(
-  loadedBranches: List<RetrievedBranch>,
-  loadedNodes: List<RetrievedNode>,
-): List<CompactMapEntry> = buildList {
-  for (branch in loadedBranches) {
-    add(
-      CompactMapEntry(
-        id = branch.branch,
-        kind = CompactMapEntryKind.Branch,
-        reason = branch.reason,
-        nodeCount = branch.nodeCount,
-      ),
-    )
-  }
-  for (node in loadedNodes) {
-    add(
-      CompactMapEntry(
-        id = node.id,
-        kind = CompactMapEntryKind.Node,
-        reason = node.reason,
-      ),
     )
   }
 }

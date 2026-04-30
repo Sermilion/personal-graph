@@ -1,5 +1,15 @@
 # core/data — history
 
+## [2026-04-30] map-first-adapter-contract-tests (PG-5)
+Areas: core/domain (retrieval report), core/data (map-first output), mcp-server (session_start JSON/schema), cli (session-start output), docs/tests
+- `SessionStartRetrievalReport` now exposes canonical `loadedContext`, `availableMap`, and `suggestedReads`; old loaded-branch/node fields remain in-process compatibility only, while MCP default output omits broad body fields
+- `PersonalGraphSessionStartRetrievalService` builds relevance-ranked `availableMap` before applying the 80-entry cap so classified subject hubs/scoped state survive crowded global state; `suggestedReads` stays capped at 8
+- Default map entries filter `people/` and all `staging/` link targets to avoid leaking blocked ids through compact metadata; full bodies stay behind explicit `read_node`, `list_branch`, or `full-loading`
+- CLI `session-start` now has labeled sections and prints bounded `loaded_context` bodies between begin/end markers for non-MCP prompt preambles
+- Split retrieval mapping/suggestion helpers out of the service file to keep detekt thresholds satisfied as map metadata grows
+Feature flag: N/A
+Acceptance criteria: 6/6 implemented
+
 ## [2026-04-30] contract-and-scoped-state-foundation (PG-5)
 Areas: core/domain (retrieval + capture contracts), core/data (retrieval, capture, codec, mappers), mcp-server (schemas/parsers/formatters), cli, core/testing
 - `SessionStartRetrievalService` now has an explicit `SessionStartRetrievalMode`: default `MapFirst` keeps full-body context to `Braian.md` only, while `FullLoading` is the opt-in path for loaded node bodies; compatibility fields remain while new map-first fields are introduced

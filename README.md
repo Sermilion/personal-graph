@@ -6,7 +6,7 @@ Context about a person is currently locked inside individual AI tools. The same 
 
 ## Status
 
-Stage 1 shipped. The CLI scaffolds an Obsidian-compatible vault on demand (`personal-graph init --vault <path>`) and the local MCP server exposes scoped read/write capture tools over stdio. Tier 1 capture (`write_state`, `write_episode`, `write_to_staging`), sensitivity routing (`flag_sensitive`, `list_pending_sensitive`), and scoped reads (`read_node`, `list_branch`) are working end-to-end. Stage 2 consolidation is implemented as a manual CLI command that promotes repeated staged observations, merges equivalent duplicates, extracts pattern hubs, annotates contradictions, and migrates fragmented legacy domain notes into canonical subject hubs. Stage 3 session-start retrieval loads `Braian.md`, classifies the first user message, loads the matching domain subtree, and expands linked pattern hubs through the CLI and MCP server. Proactive surfacing remains a placeholder. See [`.feature-spec/spec.md`](./.feature-spec/spec.md) for the full vision and phased roadmap; per-stage progress lives in [`.feature-specs/STAGES.md`](./.feature-specs/STAGES.md).
+Stage 1 shipped. The CLI scaffolds an Obsidian-compatible vault on demand (`personal-graph init --vault <path>`) and the local MCP server exposes scoped read/write capture tools over stdio. Tier 1 capture (`write_state`, `write_episode`, `write_to_staging`), sensitivity routing (`flag_sensitive`, `list_pending_sensitive`), and scoped reads (`read_node`, `list_branch`) are working end-to-end. Stage 2 consolidation is implemented as a manual CLI command that promotes repeated staged observations, merges equivalent duplicates, extracts pattern hubs, annotates contradictions, and migrates fragmented legacy domain notes into canonical subject hubs when possible. Stage 3 session-start retrieval is map-first: it loads bounded root context from `Braian.md`, classifies the first user message, returns a compact `available_map`, and suggests precise follow-up reads through the CLI and MCP server. Proactive surfacing remains a placeholder. See [`.feature-spec/spec.md`](./.feature-spec/spec.md) for the full vision and phased roadmap; per-stage progress lives in [`.feature-specs/STAGES.md`](./.feature-specs/STAGES.md).
 
 ## Design principles
 
@@ -92,7 +92,7 @@ Load session-start context:
 cli/build/install/personal-graph-cli/bin/personal-graph-cli session-start --vault /absolute/path/to/your/vault "first user message"
 ```
 
-Session-start retrieval always reports `Braian.md` first, classifies the message into `work/capmo`, `personal`, `creative`, or `general`, loads the matching domain or durable state branches, and expands linked `patterns/` hubs. The report includes the audit trail for loaded and skipped branches. It skips `people/`, skips `staging/` including `staging/sensitive/`, and excludes `emotional-states/` unless the first message explicitly asks about emotional context or self-reflection. Non-MCP usage guidance lives in [`docs/session-start-retrieval.md`](./docs/session-start-retrieval.md).
+Session-start retrieval always reports `Braian.md` first, classifies the message into the active domains (`work/capmo`, `work/skill-bill`, `work/readian`, `work/context-app`, `creative/music`, `personal`, or `general`), and returns a compact map plus suggested follow-up reads. The default report separates `loaded_context`, `available_map`, `suggested_reads`, skipped branches, and audit reasons; it does not dump broad state or domain branch bodies. Use `read_node` or `list_branch` for exact full-body follow-up reads, or pass `--retrieval-mode full-loading` only when explicitly opting into compatibility full loading. It skips `people/`, skips `staging/` including `staging/sensitive/`, and excludes `emotional-states/` unless the first message explicitly asks about emotional context or self-reflection. Scoped state (`scope` / `scopes`) can make durable state visible only for matching domains while global preferences remain global. Non-MCP usage guidance lives in [`docs/session-start-retrieval.md`](./docs/session-start-retrieval.md).
 
 Run the local MCP server over stdio:
 
@@ -104,8 +104,8 @@ Register that binary with your AI tool's MCP configuration. The server exposes t
 
 - `write_state`, `write_episode`, `write_to_staging` — Tier 1 capture. `write_episode` also reuses or appends to a canonical subject hub and writes only a timeline index stub.
 - `flag_sensitive`, `list_pending_sensitive` — sensitivity routing for batch disposition.
-- `read_node`, `list_branch` — scoped reads. `people/` is read-blocked by default; reads outside the vault root or outside whitelisted branches are rejected.
-- `session_start` — audited session-start retrieval of `Braian.md`, classified domain context, and linked pattern hubs.
+- `read_node`, `list_branch` — explicit full-body follow-up reads. `people/` is read-blocked by default; reads outside the vault root or outside whitelisted branches are rejected.
+- `session_start` — audited map-first retrieval of bounded `Braian.md` context, classification metadata, `available_map`, `suggested_reads`, skips, and audit reasons. `retrieval_mode=full-loading` remains the explicit opt-in compatibility path for loaded node bodies.
 
 All log output goes to stderr; stdout is reserved for the MCP framing channel.
 
@@ -113,7 +113,7 @@ All log output goes to stderr; stdout is reserved for the MCP framing channel.
 
 - **Stage 1 — vault + capture (MVP) — shipped.** `personal-graph init` scaffolds the layout; the local MCP server writes Tier 1 observations and episode nodes passively during agent conversations; sensitivity flagging routes to `staging/sensitive/`.
 - **Stage 2 — consolidation — implemented:** standalone CLI promotes staged observations, merges equivalent staged duplicates, extracts cross-cutting pattern hubs, annotates contradictions, and reports changed node ids.
-- **Stage 3 — session-start retrieval — implemented:** agents load `Braian.md` + classified domain subtree + linked patterns at the start of every session through CLI or MCP, with auditable classification and retrieval policy skips.
+- **Stage 3 — session-start retrieval — implemented:** agents load bounded `Braian.md` context plus a compact classified graph map at the start of every session through CLI or MCP, then follow `suggested_reads` with explicit `read_node` / `list_branch` calls when full bodies are needed.
 - **Stage 4 — proactive surfacing:** agents detect trigger conditions in-session and surface relevant prior context ("btw, you usually forget X around this point"). Gated behind 2+ months of Stages 1-3 in continuous use.
 
 ## Contributing

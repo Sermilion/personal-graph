@@ -48,22 +48,44 @@ class SessionStartCommand : CliktCommand(name = COMMAND_NAME) {
       appendLine("root=${root.path}")
       appendLine("root_load_order=${root.loadOrder}")
     }
-    appendLine("loaded_branches=${report.loadedBranches.size}")
-    for (branch in report.loadedBranches) {
-      appendLine("branch=${branch.branch}; nodes=${branch.nodeCount}; reason=${branch.reason}")
+    appendLine()
+    appendLine("Loaded context (${report.loadedContext.size})")
+    for (entry in report.loadedContext) {
+      appendLine(
+        "context=${entry.id}; source=${entry.source.value}; " +
+          "words=${entry.body.wordCount()}; reason=${entry.reason}",
+      )
+      appendLine("context_body_begin=${entry.id}")
+      appendLine(entry.body.trimEnd())
+      appendLine("context_body_end=${entry.id}")
     }
-    appendLine("loaded_nodes=${report.loadedNodes.size}")
-    for (node in report.loadedNodes) {
-      appendLine("node=${node.id}; order=${node.loadOrder}; reason=${node.reason}")
+    appendLine()
+    appendLine("Available map (${report.availableMap.size})")
+    for (entry in report.availableMap) {
+      val details = buildList {
+        add("kind=${entry.kind.value}")
+        entry.type?.let { add("type=$it") }
+        entry.category?.let { add("category=$it") }
+        entry.domain?.let { add("domain=$it") }
+        entry.scope?.let { add("scope=$it") }
+        if (entry.scopes.isNotEmpty()) add("scopes=${entry.scopes.joinToString(",")}")
+        entry.nodeCount?.let { add("nodes=$it") }
+        entry.summary?.let { add("summary=$it") }
+      }.joinToString("; ")
+      appendLine("map=${entry.id}; $details; reason=${entry.reason}")
     }
-    appendLine("loaded_full_body_context=${report.loadedFullBodyContext.size}")
-    appendLine("compact_map_entries=${report.compactMapEntries.size}")
-    appendLine("suggested_reads=${report.suggestedReads.size}")
-    appendLine("skipped_branches=${report.skippedBranches.size}")
+    appendLine()
+    appendLine("Suggested reads (${report.suggestedReads.size})")
+    for (read in report.suggestedReads) {
+      appendLine("read=${read.id}; priority=${read.priority.value}; reason=${read.reason}")
+    }
+    appendLine()
+    appendLine("Skipped branches (${report.skippedBranches.size})")
     for (skip in report.skippedBranches) {
       appendLine("skipped=${skip.branch}; reason=${skip.reason}")
     }
-    appendLine("audit_entries=${report.audit.size}")
+    appendLine()
+    appendLine("Audit reasons (${report.audit.size})")
     for (entry in report.audit) {
       appendLine("audit=${entry.action}; subject=${entry.subject}; reason=${entry.reason}")
     }
@@ -79,3 +101,7 @@ class SessionStartCommand : CliktCommand(name = COMMAND_NAME) {
     const val COMMAND_NAME: String = "session-start"
   }
 }
+
+private fun String.wordCount(): Int = trim()
+  .split(Regex("\\s+"))
+  .count { it.isNotBlank() }

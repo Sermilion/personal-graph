@@ -15,8 +15,6 @@ import com.sermilion.personalgraph.domain.retrieval.CompactMapEntry
 import com.sermilion.personalgraph.domain.retrieval.LoadedFullBodyContext
 import com.sermilion.personalgraph.domain.retrieval.RetrievalAuditEntry
 import com.sermilion.personalgraph.domain.retrieval.RetrievalClassification
-import com.sermilion.personalgraph.domain.retrieval.RetrievedBranch
-import com.sermilion.personalgraph.domain.retrieval.RetrievedNode
 import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalReport
 import com.sermilion.personalgraph.domain.retrieval.SkippedBranch
 import kotlinx.serialization.json.JsonObject
@@ -71,17 +69,14 @@ internal fun SessionStartRetrievalReport.toJson(): JsonObject = buildJsonObject 
       ToolSchemas.KEY_ROOT,
       buildJsonObject {
         put(ToolSchemas.KEY_PATH, JsonPrimitive(root.path))
-        put(ToolSchemas.KEY_BODY, JsonPrimitive(root.body))
         put(ToolSchemas.KEY_LOAD_ORDER, JsonPrimitive(root.loadOrder))
         put(ToolSchemas.KEY_REASON, JsonPrimitive(root.reason))
       },
     )
   }
   put(ToolSchemas.KEY_CLASSIFICATION, classificationJson(classification))
-  put(ToolSchemas.KEY_LOADED_BRANCHES, loadedBranchesJson(loadedBranches))
-  put(ToolSchemas.KEY_NODES, retrievedNodesJson(loadedNodes))
-  put(ToolSchemas.KEY_LOADED_FULL_BODY_CONTEXT, loadedFullBodyContextJson(loadedFullBodyContext))
-  put(ToolSchemas.KEY_COMPACT_MAP_ENTRIES, compactMapEntriesJson(compactMapEntries))
+  put(ToolSchemas.KEY_LOADED_CONTEXT, loadedFullBodyContextJson(loadedContext))
+  put(ToolSchemas.KEY_AVAILABLE_MAP, compactMapEntriesJson(availableMap))
   put(
     ToolSchemas.KEY_SUGGESTED_READS,
     buildJsonArray {
@@ -90,6 +85,7 @@ internal fun SessionStartRetrievalReport.toJson(): JsonObject = buildJsonObject 
           buildJsonObject {
             put(ToolSchemas.KEY_ID, JsonPrimitive(read.id))
             put(ToolSchemas.KEY_REASON, JsonPrimitive(read.reason))
+            put(ToolSchemas.KEY_PRIORITY, JsonPrimitive(read.priority.value))
           },
         )
       }
@@ -105,33 +101,6 @@ private fun classificationJson(classification: RetrievalClassification): JsonObj
   put(ToolSchemas.KEY_MATCHED_TERMS, stringArrayJson(classification.matchedTerms))
   put(ToolSchemas.KEY_EMOTIONAL_CONTEXT, JsonPrimitive(classification.emotionalContextRequested))
   put(ToolSchemas.KEY_EMOTIONAL_TERMS, stringArrayJson(classification.emotionalMatchedTerms))
-}
-
-private fun loadedBranchesJson(branches: List<RetrievedBranch>) = buildJsonArray {
-  for (branch in branches) {
-    add(
-      buildJsonObject {
-        put(ToolSchemas.KEY_BRANCH, JsonPrimitive(branch.branch))
-        put(ToolSchemas.KEY_REASON, JsonPrimitive(branch.reason))
-        put(ToolSchemas.KEY_NODE_COUNT, JsonPrimitive(branch.nodeCount))
-      },
-    )
-  }
-}
-
-private fun retrievedNodesJson(nodes: List<RetrievedNode>) = buildJsonArray {
-  for (node in nodes) {
-    add(
-      buildJsonObject {
-        put(ToolSchemas.KEY_ID, JsonPrimitive(node.id))
-        put(ToolSchemas.KEY_BODY, JsonPrimitive(node.body))
-        put(ToolSchemas.KEY_LINKS, stringArrayJson(node.links))
-        put(ToolSchemas.KEY_PATTERN_LINKS, stringArrayJson(node.patternLinks))
-        put(ToolSchemas.KEY_LOAD_ORDER, JsonPrimitive(node.loadOrder))
-        put(ToolSchemas.KEY_REASON, JsonPrimitive(node.reason))
-      },
-    )
-  }
 }
 
 private fun loadedFullBodyContextJson(context: List<LoadedFullBodyContext>) = buildJsonArray {
@@ -156,6 +125,17 @@ private fun compactMapEntriesJson(entries: List<CompactMapEntry>) = buildJsonArr
         put(ToolSchemas.KEY_KIND, JsonPrimitive(entry.kind.value))
         put(ToolSchemas.KEY_REASON, JsonPrimitive(entry.reason))
         entry.nodeCount?.let { put(ToolSchemas.KEY_NODE_COUNT, JsonPrimitive(it)) }
+        entry.type?.let { put(ToolSchemas.KEY_TYPE, JsonPrimitive(it)) }
+        entry.category?.let { put(ToolSchemas.KEY_CATEGORY, JsonPrimitive(it)) }
+        entry.domain?.let { put(ToolSchemas.KEY_DOMAIN, JsonPrimitive(it)) }
+        entry.scope?.let { put(ToolSchemas.KEY_SCOPE, JsonPrimitive(it)) }
+        if (entry.scopes.isNotEmpty()) put(ToolSchemas.KEY_SCOPES, stringArrayJson(entry.scopes))
+        entry.updated?.let { put(ToolSchemas.KEY_UPDATED, JsonPrimitive(it)) }
+        entry.date?.let { put(ToolSchemas.KEY_DATE, JsonPrimitive(it)) }
+        entry.summary?.let { put(ToolSchemas.KEY_SUMMARY, JsonPrimitive(it)) }
+        if (entry.aliases.isNotEmpty()) put(ToolSchemas.KEY_ALIASES, stringArrayJson(entry.aliases))
+        entry.linkCount?.let { put(ToolSchemas.KEY_LINK_COUNT, JsonPrimitive(it)) }
+        if (entry.links.isNotEmpty()) put(ToolSchemas.KEY_LINKS, stringArrayJson(entry.links))
       },
     )
   }

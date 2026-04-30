@@ -23,10 +23,14 @@ object ToolSchemas {
   const val DESC_FLAG_SENSITIVE: String = "Re-route an existing or inline node to staging/sensitive/ for batch review."
   const val DESC_LIST_PENDING_SENSITIVE: String =
     "List ids and short excerpts of items currently in staging/sensitive/."
-  const val DESC_READ_NODE: String = "Read a node by id. Reads under people/ are blocked by default."
-  const val DESC_LIST_BRANCH: String = "List nodes under a branch path. Reads under people/ are blocked by default."
+  const val DESC_READ_NODE: String =
+    "Read a full node body by id after session_start returns a precise available_map or suggested_reads follow-up. " +
+      "Reads under people/ are blocked."
+  const val DESC_LIST_BRANCH: String =
+    "List full node bodies under a branch path as an explicit follow-up. Reads under people/ are blocked."
   const val DESC_SESSION_START: String =
-    "Load session-start context: Braian.md, classified domain subtree, and linked pattern hubs."
+    "Map-first session-start retrieval: load bounded root context, return a compact available_map, " +
+      "and suggest exact read_node/list_branch follow-ups."
 
   const val DESC_FIELD_STATE_ID: String =
     "Node id. Accepts canonical plural prefix (e.g. state/roles/<leaf>), or a bare leaf which is " +
@@ -39,7 +43,8 @@ object ToolSchemas {
   const val DESC_FIELD_TARGET_PATH: String =
     "Existing node id to re-route. Reads under people/ are blocked. Must parse as a valid node id."
   const val DESC_FIELD_BRANCH: String =
-    "Branch path under the vault root, e.g. state/roles or domains/work/capmo. Reads under people/ are blocked."
+    "Branch path under the vault root, e.g. state/roles or domains/work/capmo. Reads under people/ are blocked. " +
+      "Use after session_start available_map/suggested_reads when full branch bodies are explicitly needed."
   const val DESC_FIELD_LINKS: String =
     "Wikilink targets as node ids. Entries that fail to parse are silently dropped without error; " +
       "canonical-prefix enforcement is not currently performed."
@@ -51,7 +56,9 @@ object ToolSchemas {
   const val DESC_FIELD_SCOPES: String =
     "Optional state scopes for state that applies to multiple domains. Omit for global state."
   const val DESC_FIELD_RETRIEVAL_MODE: String =
-    "Session-start retrieval mode. Defaults to map-first; full-loading is an explicit opt-in."
+    "Session-start retrieval mode. Defaults to map-first: loaded_context contains bounded root orientation, " +
+      "available_map is compact, and suggested_reads names follow-up nodes. full-loading is an explicit opt-in " +
+      "for callers that intentionally want loaded node bodies."
 
   const val KEY_ID: String = "id"
   const val KEY_OBSERVATION: String = "observation"
@@ -105,10 +112,18 @@ object ToolSchemas {
   const val KEY_SCOPES: String = "scopes"
   const val KEY_LOADED_FULL_BODY_CONTEXT: String = "loaded_full_body_context"
   const val KEY_COMPACT_MAP_ENTRIES: String = "compact_map_entries"
+  const val KEY_LOADED_CONTEXT: String = "loaded_context"
+  const val KEY_AVAILABLE_MAP: String = "available_map"
   const val KEY_SUGGESTED_READS: String = "suggested_reads"
   const val KEY_AUDIT_ENTRIES: String = "audit_entries"
   const val KEY_SOURCE: String = "source"
   const val KEY_KIND: String = "kind"
+  const val KEY_TYPE: String = "type"
+  const val KEY_SUMMARY: String = "summary"
+  const val KEY_ALIASES: String = "aliases"
+  const val KEY_UPDATED: String = "updated"
+  const val KEY_LINK_COUNT: String = "link_count"
+  const val KEY_PRIORITY: String = "priority"
 
   const val STATUS_OK: String = "ok"
   const val STATUS_PERMISSION_DENIED: String = "permission_denied"
