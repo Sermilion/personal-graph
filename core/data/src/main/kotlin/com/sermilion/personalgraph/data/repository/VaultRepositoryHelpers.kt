@@ -95,6 +95,28 @@ internal fun decodeMarkdownIfEligible(ctx: VaultDecodeContext, file: Path): Vaul
   null
 }
 
+internal fun decodeMarkdownPreviewIfEligible(
+  ctx: VaultDecodeContext,
+  file: Path,
+  bodyWordLimit: Int,
+): VaultNode? = try {
+  when {
+    Files.isSymbolicLink(file) -> null
+    !Files.isRegularFile(file) -> null
+    !file.fileName.toString().endsWith(MARKDOWN_EXTENSION_VALUE) -> null
+    else -> decodeMarkdownPreviewFromFile(ctx, file, bodyWordLimit)
+  }
+} catch (e: IOException) {
+  ctx.logger.debug(e) { "Skipping unreadable preview file=$file" }
+  null
+} catch (e: SecurityException) {
+  ctx.logger.debug(e) { "Skipping access-denied preview file=$file" }
+  null
+} catch (e: SerializationException) {
+  ctx.logger.debug(e) { "Skipping undecodable preview file=$file" }
+  null
+}
+
 private fun decodeMarkdownFromFile(ctx: VaultDecodeContext, file: Path): VaultNode? {
   val nodeId = ctx.pathResolver.relativize(ctx.vaultRoot, file) ?: return null
   if (Files.size(file) > MAX_VAULT_FILE_SIZE_BYTES) {
@@ -102,6 +124,19 @@ private fun decodeMarkdownFromFile(ctx: VaultDecodeContext, file: Path): VaultNo
     return null
   }
   return ctx.codec.decode(nodeId, Files.readString(file))
+}
+
+private fun decodeMarkdownPreviewFromFile(
+  ctx: VaultDecodeContext,
+  file: Path,
+  bodyWordLimit: Int,
+): VaultNode? {
+  val nodeId = ctx.pathResolver.relativize(ctx.vaultRoot, file) ?: return null
+  if (Files.size(file) > MAX_VAULT_FILE_SIZE_BYTES) {
+    ctx.logger.warn { "Skipping oversized preview file=$file size=${Files.size(file)} bytes" }
+    return null
+  }
+  return ctx.codec.decodePreview(nodeId, Files.readString(file), bodyWordLimit)
 }
 
 internal fun canonicalSubjectKey(value: String): String = value

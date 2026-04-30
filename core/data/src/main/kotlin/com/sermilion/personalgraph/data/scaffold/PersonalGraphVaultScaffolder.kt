@@ -61,6 +61,7 @@ class PersonalGraphVaultScaffolder(
       appendLine("- `timeline/YYYY-MM/` — chronological index/backlink stubs, not duplicated content")
       appendLine("- `staging/observations/` — low-confidence captures awaiting promotion")
       appendLine("- `staging/sensitive/` — flagged content awaiting batch disposition")
+      appendLine("- `outdated/resolved/` — prior node versions archived when a newer write replaces them")
       appendLine("- `people/` — anonymized people index (read-blocked from MCP by default)")
       appendLine()
       appendLine("# TODO")

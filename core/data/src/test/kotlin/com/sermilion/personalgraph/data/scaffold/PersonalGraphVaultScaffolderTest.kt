@@ -26,6 +26,7 @@ class PersonalGraphVaultScaffolderTest :
       "timeline",
       "staging/observations",
       "staging/sensitive",
+      "outdated/resolved",
       "people",
     )
 

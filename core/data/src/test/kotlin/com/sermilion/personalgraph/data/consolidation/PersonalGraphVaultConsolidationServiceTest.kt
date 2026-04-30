@@ -350,6 +350,11 @@ private class PatternFallbackRepository(
     else -> emptyList()
   }
 
+  override suspend fun listMapNodesInBranch(
+    branchPath: String,
+    bodyWordLimit: Int,
+  ): List<VaultNode> = listNodesInBranch(branchPath)
+
   override suspend fun listStagedObservations(): List<StateNode> = stagedNodes
 
   override suspend fun listSubjectHubs(domain: String): List<SubjectNode> = emptyList()

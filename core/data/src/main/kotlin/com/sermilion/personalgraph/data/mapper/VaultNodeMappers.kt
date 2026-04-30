@@ -70,11 +70,14 @@ object VaultNodeMappers {
     emotionMarkerToString.entries.associate { (k, v) -> v to k }
 
   fun toStateFrontmatter(node: StateNode): StateNodeFrontmatterDataModel = StateNodeFrontmatterDataModel(
+    type = StateNodeFrontmatterDataModel.NODE_TYPE,
     category = stateCategoryToString.getValue(node.category),
     confidence = confidenceToString.getValue(node.confidence),
     created = node.createdAt.toFrontmatterLocalDate(),
     updated = node.updatedAt.toFrontmatterLocalDate(),
     linked = mergeLinks(node.links, node.patternLinks).map { wrapWikilink(it.value) },
+    scope = node.scope,
+    scopes = node.scopes.takeIf { it.isNotEmpty() },
     occurrenceCount = node.occurrenceCount,
     sourceIds = node.sourceIds.map { it.value },
     patternLinks = node.patternLinks.map { it.value },
@@ -103,6 +106,8 @@ object VaultNodeMappers {
       sourceIds = parseNodeIds(frontmatter.sourceIds),
       patternLinks = parseNodeIds(frontmatter.patternLinks),
       contradictedBy = parseNodeIds(frontmatter.contradictedBy),
+      scope = frontmatter.scope,
+      scopes = frontmatter.scopes.orEmpty(),
     )
   }
 

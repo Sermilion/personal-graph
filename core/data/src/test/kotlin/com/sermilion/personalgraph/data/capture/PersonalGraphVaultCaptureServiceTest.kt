@@ -1,5 +1,8 @@
 package com.sermilion.personalgraph.data.capture
 
+import com.sermilion.personalgraph.data.codec.MarkdownFrontmatterCodec
+import com.sermilion.personalgraph.data.path.VaultPathResolver
+import com.sermilion.personalgraph.data.repository.PersonalGraphVaultRepository
 import com.sermilion.personalgraph.domain.capture.CaptureObservationArgs
 import com.sermilion.personalgraph.domain.capture.CaptureObservationDecision
 import com.sermilion.personalgraph.domain.capture.CaptureObservationKind
@@ -20,6 +23,7 @@ import com.sermilion.personalgraph.domain.model.StateNode
 import com.sermilion.personalgraph.domain.model.SubjectNode
 import com.sermilion.personalgraph.domain.repository.VaultRepository
 import com.sermilion.personalgraph.domain.repository.WriteOutcome
+import com.sermilion.personalgraph.testing.TestDispatcherProvider
 import com.sermilion.personalgraph.testing.VaultNodeFixtures
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
@@ -31,17 +35,29 @@ import io.mockk.mockk
 import io.mockk.slot
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
+import java.nio.file.Files
 
 class PersonalGraphVaultCaptureServiceTest :
   FunSpec({
 
     fun newService(): Pair<PersonalGraphVaultCaptureService, VaultRepository> {
       val repo = mockk<VaultRepository>()
-      val clock = object : Clock {
-        override fun now(): Instant = Instant.parse("2026-04-25T10:00:00Z")
-      }
+      val clock = fixedClock()
+      coEvery { repo.findNode(any()) } returns null
       val service = PersonalGraphVaultCaptureService(repo, clock)
       return service to repo
+    }
+
+    fun newRepositoryService(): Pair<PersonalGraphVaultCaptureService, PersonalGraphVaultRepository> {
+      val tempDir = Files.createTempDirectory("capture-scoped-")
+      val resolver = VaultPathResolver()
+      val repository = PersonalGraphVaultRepository(
+        vaultRoot = tempDir,
+        dispatcherProvider = TestDispatcherProvider(),
+        codec = MarkdownFrontmatterCodec(),
+        pathResolver = resolver,
+      )
+      return PersonalGraphVaultCaptureService(repository, fixedClock()) to repository
     }
 
     test("flagSensitive on existing state node calls moveNode atomically") {
@@ -128,6 +144,101 @@ class PersonalGraphVaultCaptureServiceTest :
       result.shouldBeInstanceOf<CaptureResult.Created>()
       result.id.value shouldBe "state/roles/sermilion-music"
       captured.captured.id.value shouldBe "state/roles/sermilion-music"
+    }
+
+    test("writeStateObservation persists scoped state metadata through repository encoding") {
+      val (service, repo) = newRepositoryService()
+
+      val result = service.writeStateObservation(
+        WriteStateArgs(
+          id = "scoped-preference",
+          category = StateCategory.Preference,
+          confidence = Confidence.High,
+          body = "Scoped preference.",
+          links = emptyList(),
+          sensitive = false,
+          scope = "work/capmo",
+          scopes = listOf("work/skill-bill", "creative/music"),
+        ),
+      )
+
+      result.shouldBeInstanceOf<CaptureResult.Created>()
+      val decoded = repo.findNode(NodeId("state/preferences/scoped-preference"))
+        .shouldBeInstanceOf<StateNode>()
+      decoded.scope shouldBe "work/capmo"
+      decoded.scopes shouldBe listOf("work/skill-bill", "creative/music")
+    }
+
+    test("writeStateObservation archives previous node version before replacing the same graph path") {
+      val (service, repo) = newRepositoryService()
+
+      service.writeStateObservation(
+        WriteStateArgs(
+          id = "memory-policy",
+          category = StateCategory.Preference,
+          confidence = Confidence.High,
+          body = "Old policy body.",
+          links = emptyList(),
+          sensitive = false,
+        ),
+      ).shouldBeInstanceOf<CaptureResult.Created>()
+
+      val result = service.writeStateObservation(
+        WriteStateArgs(
+          id = "memory-policy",
+          category = StateCategory.Preference,
+          confidence = Confidence.High,
+          body = "New policy body.",
+          links = emptyList(),
+          sensitive = false,
+        ),
+      ).shouldBeInstanceOf<CaptureResult.Created>()
+
+      result.id.value shouldBe "state/preferences/memory-policy"
+      result.archivedIds.single().value.startsWith(
+        "${VaultLayout.BRANCH_OUTDATED_RESOLVED}/state/preferences/memory-policy/",
+      ) shouldBe true
+      repo.findNode(NodeId("state/preferences/memory-policy"))
+        .shouldBeInstanceOf<StateNode>()
+        .body shouldBe "New policy body."
+      val archived = repo.listNodesInBranch("${VaultLayout.BRANCH_OUTDATED_RESOLVED}/state/preferences/memory-policy")
+        .single()
+        .shouldBeInstanceOf<StateNode>()
+      archived.body shouldContain "Archived from `state/preferences/memory-policy`"
+      archived.body shouldContain "Superseded by `state/preferences/memory-policy`"
+      archived.body shouldContain "Old policy body."
+    }
+
+    test("writeStateObservation does not copy sensitive staging replacements into readable archive") {
+      val (service, repo) = newRepositoryService()
+
+      service.writeStateObservation(
+        WriteStateArgs(
+          id = "private-note",
+          category = StateCategory.Knowledge,
+          confidence = Confidence.Low,
+          body = "Old sensitive body.",
+          links = emptyList(),
+          sensitive = true,
+        ),
+      ).shouldBeInstanceOf<CaptureResult.Created>()
+
+      val result = service.writeStateObservation(
+        WriteStateArgs(
+          id = "private-note",
+          category = StateCategory.Knowledge,
+          confidence = Confidence.Low,
+          body = "New sensitive body.",
+          links = emptyList(),
+          sensitive = true,
+        ),
+      ).shouldBeInstanceOf<CaptureResult.Created>()
+
+      result.archivedIds shouldBe emptyList()
+      repo.listNodesInBranch(VaultLayout.BRANCH_OUTDATED_RESOLVED) shouldBe emptyList()
+      repo.findNode(NodeId("staging/sensitive/private-note"))
+        .shouldBeInstanceOf<StateNode>()
+        .body shouldBe "New sensitive body."
     }
 
     test("writeStateObservation rejects state/role/<leaf> singular form before parsing") {
@@ -368,6 +479,37 @@ class PersonalGraphVaultCaptureServiceTest :
       captured.captured.body shouldContain "Source context: design discussion"
     }
 
+    test("captureObservation persists scoped state metadata through repository encoding") {
+      val (service, repo) = newRepositoryService()
+
+      val result = service.captureObservation(
+        CaptureObservationArgs(
+          observation = "Braian prefers scoped memory for Capmo-specific implementation rules.",
+          sourceContext = "design discussion",
+          suggestedKind = null,
+          id = "capmo-scoped-memory",
+          category = StateCategory.Preference,
+          confidence = Confidence.High,
+          date = null,
+          episodeType = null,
+          domain = null,
+          topic = null,
+          intensity = null,
+          links = emptyList(),
+          sensitive = false,
+          scope = "work/capmo",
+          scopes = listOf("work/capmo", "work/context-app"),
+        ),
+      )
+
+      result.shouldBeInstanceOf<CaptureObservationResult.Decided>()
+      result.decision shouldBe CaptureObservationDecision.StateWritten
+      val decoded = repo.findNode(NodeId("state/preferences/capmo-scoped-memory"))
+        .shouldBeInstanceOf<StateNode>()
+      decoded.scope shouldBe "work/capmo"
+      decoded.scopes shouldBe listOf("work/capmo", "work/context-app")
+    }
+
     test("captureObservation stages low-confidence candidates instead of saving as durable state") {
       val (service, repo) = newService()
       val captured = slot<StateNode>()
@@ -551,3 +693,7 @@ class PersonalGraphVaultCaptureServiceTest :
       capture.id.value shouldBe "domains/work/personal-graph/events/candidate-ingest-boundary"
     }
   })
+
+private fun fixedClock(): Clock = object : Clock {
+  override fun now(): Instant = Instant.parse("2026-04-25T10:00:00Z")
+}

@@ -1,0 +1,338 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat >&2 <<'EOF'
+Usage: scripts/install-local-mcp [--vault <path>] [--skip-configs]
+
+Builds the personal-graph MCP server, installs it to a stable user-local
+runtime path, writes ~/.local/bin/personal-graph-mcp, and updates known local
+agent configs to launch that stable command.
+
+Options:
+  --vault <path>   Vault path to write into agent configs. If omitted, the
+                   installer reuses the first existing personal-graph MCP vault
+                   path it can find in local agent configs.
+  --skip-configs   Install the runtime and launcher only.
+  -h, --help       Show this help.
+EOF
+}
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+DIST_DIR="$REPO_ROOT/mcp-server/build/install/personal-graph-mcp-server"
+INSTALL_ROOT="${PERSONAL_GRAPH_INSTALL_ROOT:-$HOME/.local/share/personal-graph/mcp-server}"
+BIN_DIR="${PERSONAL_GRAPH_BIN_DIR:-$HOME/.local/bin}"
+LAUNCHER="$BIN_DIR/personal-graph-mcp"
+VAULT_PATH="${PERSONAL_GRAPH_VAULT:-}"
+UPDATE_CONFIGS=1
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --vault)
+      [[ $# -ge 2 ]] || { echo "Missing value for --vault" >&2; exit 2; }
+      VAULT_PATH="$2"
+      shift 2
+      ;;
+    --skip-configs)
+      UPDATE_CONFIGS=0
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      usage
+      exit 2
+      ;;
+  esac
+done
+
+detect_vault_path() {
+  python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+
+home = Path.home()
+
+json_paths = [
+    home / ".claude.json",
+    home / ".cursor/mcp.json",
+    home / ".copilot/mcp-config.json",
+    home / ".config/github-copilot/intellij/mcp.json",
+    home / ".config/opencode/opencode.json",
+    home / ".glm/mcp-config.json",
+    home / ".gemini/settings.json",
+    home / ".gemini/antigravity/mcp_config.json",
+    home / ".config/zed/settings.json",
+]
+
+
+def vault_from_args(args):
+    if not isinstance(args, list):
+        return None
+    for index, value in enumerate(args[:-1]):
+        if value == "--vault":
+            return args[index + 1]
+    return None
+
+
+def entries_from_json(data):
+    if not isinstance(data, dict):
+        return []
+    entries = []
+    for key in ("mcpServers", "servers"):
+        container = data.get(key)
+        if isinstance(container, dict) and isinstance(container.get("personal-graph"), dict):
+            entries.append(container["personal-graph"])
+    mcp = data.get("mcp")
+    if isinstance(mcp, dict) and isinstance(mcp.get("personal-graph"), dict):
+        entries.append(mcp["personal-graph"])
+    context_servers = data.get("context_servers")
+    if isinstance(context_servers, dict) and isinstance(context_servers.get("personal-graph"), dict):
+        entries.append(context_servers["personal-graph"])
+    return entries
+
+
+for path in json_paths:
+    try:
+        if not path.exists() or path.stat().st_size == 0:
+            continue
+        with path.open(encoding="utf-8") as file:
+            data = json.load(file)
+    except Exception:
+        continue
+    for entry in entries_from_json(data):
+        command = entry.get("command")
+        if isinstance(command, list):
+            vault = vault_from_args(command)
+            if vault:
+                print(vault)
+                raise SystemExit(0)
+        vault = vault_from_args(entry.get("args"))
+        if vault:
+            print(vault)
+            raise SystemExit(0)
+
+codex_config = home / ".codex/config.toml"
+try:
+    text = codex_config.read_text(encoding="utf-8")
+except OSError:
+    text = ""
+
+in_block = False
+for line in text.splitlines():
+    stripped = line.strip()
+    if stripped == "[mcp_servers.personal-graph]":
+        in_block = True
+        continue
+    if in_block and stripped.startswith("[") and stripped.endswith("]"):
+        in_block = False
+    if in_block and stripped.startswith("args"):
+        try:
+            args_text = stripped.split("=", 1)[1].strip()
+            args = json.loads(args_text)
+        except Exception:
+            continue
+        vault = vault_from_args(args)
+        if vault:
+            print(vault)
+            raise SystemExit(0)
+PY
+}
+
+if [[ -z "$VAULT_PATH" ]]; then
+  VAULT_PATH="$(detect_vault_path || true)"
+fi
+
+if [[ -z "$VAULT_PATH" ]]; then
+  echo "Could not detect a vault path. Re-run with --vault /absolute/path/to/vault." >&2
+  exit 2
+fi
+
+echo "Building MCP distribution..."
+(cd "$REPO_ROOT" && ./gradlew :mcp-server:installDist)
+
+echo "Installing MCP runtime to $INSTALL_ROOT..."
+mkdir -p "$INSTALL_ROOT"
+rsync -a --delete "$DIST_DIR"/ "$INSTALL_ROOT"/
+
+echo "Writing launcher $LAUNCHER..."
+mkdir -p "$BIN_DIR"
+cat > "$LAUNCHER" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+
+SERVER="$INSTALL_ROOT/bin/personal-graph-mcp-server"
+
+if [[ ! -x "\$SERVER" ]]; then
+  echo "personal-graph MCP runtime is not installed at \$SERVER" >&2
+  echo "Run: $REPO_ROOT/scripts/install-local-mcp --vault '<vault-path>'" >&2
+  exit 127
+fi
+
+exec "\$SERVER" "\$@"
+EOF
+chmod +x "$LAUNCHER"
+
+if [[ "$UPDATE_CONFIGS" -eq 1 ]]; then
+  echo "Updating local agent MCP configs..."
+  MCP_COMMAND="$LAUNCHER" MCP_VAULT="$VAULT_PATH" python3 - <<'PY'
+import json
+import os
+import shutil
+import sys
+import time
+from pathlib import Path
+
+home = Path.home()
+command = os.environ["MCP_COMMAND"]
+vault = os.environ["MCP_VAULT"]
+stamp = time.strftime("%Y%m%d%H%M%S")
+
+
+def backup(path: Path) -> None:
+    if path.exists():
+        shutil.copy2(path, path.with_name(path.name + f".bak-{stamp}"))
+
+
+def load_json(path: Path) -> dict:
+    if not path.exists() or path.stat().st_size == 0:
+        return {}
+    with path.open(encoding="utf-8") as file:
+        data = json.load(file)
+    if not isinstance(data, dict):
+        raise ValueError(f"{path} must contain a JSON object")
+    return data
+
+
+def write_json_if_changed(path: Path, data: dict, original: dict) -> bool:
+    if data == original:
+        return False
+    path.parent.mkdir(parents=True, exist_ok=True)
+    backup(path)
+    with path.open("w", encoding="utf-8") as file:
+        json.dump(data, file, indent=2, ensure_ascii=False)
+        file.write("\n")
+    return True
+
+
+def stdio_entry() -> dict:
+    return {
+        "type": "stdio",
+        "command": command,
+        "args": ["--vault", vault],
+        "env": {},
+    }
+
+
+def zed_entry() -> dict:
+    return {
+        "command": command,
+        "args": ["--vault", vault],
+        "env": {},
+    }
+
+
+def opencode_entry() -> dict:
+    return {
+        "type": "local",
+        "enabled": True,
+        "command": [command, "--vault", vault],
+    }
+
+
+json_targets = [
+    (home / ".claude.json", ("mcpServers",), stdio_entry()),
+    (home / ".cursor/mcp.json", ("mcpServers",), stdio_entry()),
+    (home / ".copilot/mcp-config.json", ("mcpServers",), stdio_entry()),
+    (home / ".config/github-copilot/intellij/mcp.json", ("servers",), stdio_entry()),
+    (home / ".config/opencode/opencode.json", ("mcp",), opencode_entry()),
+    (home / ".glm/mcp-config.json", ("mcpServers",), stdio_entry()),
+    (home / ".gemini/settings.json", ("mcpServers",), stdio_entry()),
+    (home / ".gemini/antigravity/mcp_config.json", ("mcpServers",), stdio_entry()),
+    (home / ".config/zed/settings.json", ("context_servers",), zed_entry()),
+]
+
+changed = []
+for path, container_path, entry in json_targets:
+    if not path.exists() and path.parent.exists() is False:
+        continue
+    original = load_json(path)
+    data = json.loads(json.dumps(original))
+    container = data
+    for key in container_path:
+        value = container.setdefault(key, {})
+        if not isinstance(value, dict):
+            raise ValueError(f"{path}: {key} must be a JSON object")
+        container = value
+    container["personal-graph"] = entry
+    if write_json_if_changed(path, data, original):
+        changed.append(str(path))
+
+
+def toml_string(value: str) -> str:
+    return json.dumps(value, ensure_ascii=False)
+
+
+codex_path = home / ".codex/config.toml"
+if codex_path.exists() or codex_path.parent.exists():
+    original_text = codex_path.read_text(encoding="utf-8") if codex_path.exists() else ""
+    lines = original_text.splitlines()
+    output = []
+    skipping = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped == "[mcp_servers.personal-graph]":
+            skipping = True
+            continue
+        if skipping and stripped.startswith("[") and stripped.endswith("]"):
+            skipping = False
+        if not skipping:
+            output.append(line)
+    block = "\n".join(
+        [
+            "[mcp_servers.personal-graph]",
+            f"command = {toml_string(command)}",
+            f"args = [{toml_string('--vault')}, {toml_string(vault)}]",
+        ]
+    )
+    new_text = "\n".join(output).rstrip() + "\n\n" + block + "\n"
+    if new_text != original_text:
+        codex_path.parent.mkdir(parents=True, exist_ok=True)
+        backup(codex_path)
+        codex_path.write_text(new_text, encoding="utf-8")
+        changed.append(str(codex_path))
+
+for path, _, _ in json_targets:
+    if path.exists():
+        with path.open(encoding="utf-8") as file:
+            json.load(file)
+
+try:
+    import tomllib
+except ModuleNotFoundError:
+    tomllib = None
+
+if codex_path.exists() and tomllib is not None:
+    with codex_path.open("rb") as file:
+        tomllib.load(file)
+
+if changed:
+    print("Updated:")
+    for path in changed:
+        print(f"  {path}")
+else:
+    print("Agent configs already used the stable launcher.")
+PY
+fi
+
+echo "Smoke-testing launcher..."
+"$LAUNCHER" --vault "$VAULT_PATH" --help >/dev/null
+
+echo "Installed personal-graph MCP:"
+echo "  command: $LAUNCHER"
+echo "  runtime: $INSTALL_ROOT"
+echo "  vault:   $VAULT_PATH"

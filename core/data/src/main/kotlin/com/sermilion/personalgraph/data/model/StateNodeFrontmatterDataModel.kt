@@ -6,12 +6,14 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class StateNodeFrontmatterDataModel(
-  val type: String = NODE_TYPE,
+  val type: String,
   val category: String,
   val confidence: String,
   val created: LocalDate,
   val updated: LocalDate,
   val linked: List<String> = emptyList(),
+  val scope: String? = null,
+  val scopes: List<String>? = null,
   @SerialName("occurrence_count") val occurrenceCount: Int = 1,
   @SerialName("source_ids") val sourceIds: List<String> = emptyList(),
   @SerialName("pattern_links") val patternLinks: List<String> = emptyList(),

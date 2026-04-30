@@ -1,5 +1,35 @@
 # core/data — history
 
+## [2026-04-30] capture-replacement-archive (PG-5 follow-up)
+Areas: core/domain (layout/policy/capture result), core/data (capture archive/scaffold/tests), mcp-server (write result JSON/schema docs), README
+- Capture writes now preserve previous versions when replacing the same graph path by writing an archive copy under `outdated/resolved/<original-path>/<timestamp-hash>` before overwriting the active node
+- MCP write results expose `archived_paths` so agents can see which stale memory versions were resolved by the new write
+- `outdated/resolved/` is scaffolded and read/write allowed, but `staging/sensitive/` replacements are intentionally not copied there to avoid moving sensitive content into a readable archive branch
+- Archive bodies keep the original content with a short header naming the original path, archive time, and superseding path; the active graph path still contains only the new body
+Feature flag: N/A
+Acceptance criteria: follow-up implemented
+
+## [2026-04-30] map-first-adapter-contract-tests (PG-5)
+Areas: core/domain (retrieval report), core/data (map-first output), mcp-server (session_start JSON/schema), cli (session-start output), docs/tests
+- `SessionStartRetrievalReport` now exposes canonical `loadedContext`, `availableMap`, and `suggestedReads`; old loaded-branch/node fields remain in-process compatibility only, while MCP default output omits broad body fields
+- `PersonalGraphSessionStartRetrievalService` builds relevance-ranked `availableMap` before applying the 80-entry cap so classified subject hubs/scoped state survive crowded global state; `suggestedReads` stays capped at 8
+- Default map entries filter `people/` and all `staging/` link targets to avoid leaking blocked ids through compact metadata; full bodies stay behind explicit `read_node`, `list_branch`, or `full-loading`
+- Repository preview support from the map-first engine branch adds `listMapNodesInBranch(...)` and `decodePreview(...)`, so future map construction can derive bounded summaries/links without hydrating full branch bodies
+- CLI `session-start` now has labeled sections and prints bounded `loaded_context` bodies between begin/end markers for non-MCP prompt preambles
+- Split retrieval mapping/suggestion helpers out of the service file to keep detekt thresholds satisfied as map metadata grows
+Feature flag: N/A
+Acceptance criteria: 6/6 implemented
+
+## [2026-04-30] contract-and-scoped-state-foundation (PG-5)
+Areas: core/domain (retrieval + capture contracts), core/data (retrieval, capture, codec, mappers), mcp-server (schemas/parsers/formatters), cli, core/testing
+- `SessionStartRetrievalService` now has an explicit `SessionStartRetrievalMode`: default `MapFirst` keeps full-body context to `Braian.md` only, while `FullLoading` is the opt-in path for loaded node bodies; compatibility fields remain while new map-first fields are introduced
+- Active retrieval domains expanded to `work/capmo`, `work/skill-bill`, `work/readian`, `work/context-app`, `creative/music`, `personal`, and `general`; Capmo matching is now product-specific so generic `work` does not steal explicit project/domain prompts
+- `StateNode` carries optional `scope` plus plural `scopes`; broad state branch retrieval includes global state and filters scoped state by classified domain, with `General` excluding scoped state
+- State frontmatter uses state-specific YAML encoding with absent scope metadata omitted, preserving existing files while round-tripping singular/plural scoped metadata
+- Capture and MCP write paths now persist scoped state metadata; malformed `scope`, `scopes`, and `retrieval_mode` JSON shapes reject instead of silently defaulting
+Feature flag: N/A
+Acceptance criteria: 7/7 implemented
+
 ## [2026-04-27] cohesive-subject-hub-vault-organization (PG-4)
 Areas: core/data (subject hubs, capture, consolidation, repository), core/domain (layout/contracts), cli (consolidate reporting), mcp-server (tool schema/formatters), docs/tests
 - Added first-class `SubjectNode` markdown/frontmatter support plus canonical `domains/.../subjects/` routing so related feature/work context can accumulate in reusable hub notes with dated evidence instead of one-off files

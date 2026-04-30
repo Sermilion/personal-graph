@@ -18,6 +18,7 @@ import com.sermilion.personalgraph.domain.retrieval.RetrievalDomain
 import com.sermilion.personalgraph.domain.retrieval.RetrievedBranch
 import com.sermilion.personalgraph.domain.retrieval.RetrievedNode
 import com.sermilion.personalgraph.domain.retrieval.RetrievedRootDocument
+import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalMode
 import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalReport
 import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalRequest
 import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalService
@@ -64,7 +65,7 @@ class PersonalGraphSessionStartRetrievalService(
 
     val seedNodes = mutableListOf<VaultNode>()
     for ((branch, reason) in branchPlan) {
-      val nodes = loadBranch(branch, reason, loadedBranches, skippedBranches, audit)
+      val nodes = loadBranch(branch, reason, classification, loadedBranches, skippedBranches, audit)
       seedNodes.addAll(nodes)
       for (node in nodes.sortedBy { it.id.value }) {
         loadedNodes.add(node.toRetrievedNode(++loadOrder, reason))
@@ -81,25 +82,42 @@ class PersonalGraphSessionStartRetrievalService(
       )
     }
 
+    val loadedContext = loadedContext(rootDocument, loadedNodes, request.retrievalMode, audit)
+    val availableMap = availableMap(loadedBranches, loadedNodes, classification)
+    val suggestedReads = suggestedReads(availableMap, classification, audit)
+    audit.add(retrievalModeAudit(request.retrievalMode))
+
     SessionStartRetrievalReport(
       rootDocument = rootDocument,
       classification = classification,
-      loadedBranches = loadedBranches,
-      loadedNodes = loadedNodes,
+      loadedContext = loadedContext,
+      availableMap = availableMap,
+      suggestedReads = suggestedReads,
       skippedBranches = skippedBranches.distinctBy { it.branch },
       audit = audit,
+      loadedBranches = loadedBranches,
+      loadedNodes = if (request.retrievalMode == SessionStartRetrievalMode.FullLoading) loadedNodes else emptyList(),
+      loadedFullBodyContext = loadedContext,
+      compactMapEntries = availableMap,
+      auditEntries = audit,
     )
   }
 
   private fun classify(message: String): RetrievalClassification {
-    val workMatches = matchedTerms(message, WORK_TERMS)
+    val capmoMatches = matchedTerms(message, WORK_CAPMO_TERMS)
+    val skillBillMatches = matchedTerms(message, WORK_SKILL_BILL_TERMS)
+    val readianMatches = matchedTerms(message, WORK_READIAN_TERMS)
+    val contextAppMatches = matchedTerms(message, WORK_CONTEXT_APP_TERMS)
     val personalMatches = matchedTerms(message, PERSONAL_TERMS)
-    val creativeMatches = matchedTerms(message, CREATIVE_TERMS)
+    val creativeMusicMatches = matchedTerms(message, CREATIVE_MUSIC_TERMS)
     val emotionalMatches = matchedTerms(message, EMOTIONAL_TERMS)
     val candidates = listOf(
-      RetrievalDomain.WorkCapmo to workMatches,
+      RetrievalDomain.WorkCapmo to capmoMatches,
+      RetrievalDomain.WorkSkillBill to skillBillMatches,
+      RetrievalDomain.WorkReadian to readianMatches,
+      RetrievalDomain.WorkContextApp to contextAppMatches,
       RetrievalDomain.Personal to personalMatches,
-      RetrievalDomain.Creative to creativeMatches,
+      RetrievalDomain.CreativeMusic to creativeMusicMatches,
     )
     val bestDomain = candidates
       .filter { it.second.isNotEmpty() }
@@ -109,9 +127,12 @@ class PersonalGraphSessionStartRetrievalService(
     return RetrievalClassification(
       domain = domain,
       matchedTerms = when (domain) {
-        RetrievalDomain.WorkCapmo -> workMatches
+        RetrievalDomain.WorkCapmo -> capmoMatches
+        RetrievalDomain.WorkSkillBill -> skillBillMatches
+        RetrievalDomain.WorkReadian -> readianMatches
+        RetrievalDomain.WorkContextApp -> contextAppMatches
         RetrievalDomain.Personal -> personalMatches
-        RetrievalDomain.Creative -> creativeMatches
+        RetrievalDomain.CreativeMusic -> creativeMusicMatches
         RetrievalDomain.General -> emptyList()
       },
       emotionalContextRequested = emotionalMatches.isNotEmpty(),
@@ -151,11 +172,20 @@ class PersonalGraphSessionStartRetrievalService(
       RetrievalDomain.WorkCapmo -> listOf(
         "${VaultLayout.BRANCH_DOMAINS}/work/capmo" to REASON_DOMAIN_WORK_CAPMO,
       )
+      RetrievalDomain.WorkSkillBill -> listOf(
+        "${VaultLayout.BRANCH_DOMAINS}/work/skill-bill" to REASON_DOMAIN_WORK_SKILL_BILL,
+      )
+      RetrievalDomain.WorkReadian -> listOf(
+        "${VaultLayout.BRANCH_DOMAINS}/work/readian" to REASON_DOMAIN_WORK_READIAN,
+      )
+      RetrievalDomain.WorkContextApp -> listOf(
+        "${VaultLayout.BRANCH_DOMAINS}/work/context-app" to REASON_DOMAIN_WORK_CONTEXT_APP,
+      )
       RetrievalDomain.Personal -> listOf(
         "${VaultLayout.BRANCH_DOMAINS}/personal" to REASON_DOMAIN_PERSONAL,
       )
-      RetrievalDomain.Creative -> listOf(
-        "${VaultLayout.BRANCH_DOMAINS}/creative" to REASON_DOMAIN_CREATIVE,
+      RetrievalDomain.CreativeMusic -> listOf(
+        "${VaultLayout.BRANCH_DOMAINS}/creative/music" to REASON_DOMAIN_CREATIVE_MUSIC,
       )
       RetrievalDomain.General -> emptyList()
     }
@@ -212,6 +242,8 @@ class PersonalGraphSessionStartRetrievalService(
           null
         }
         else -> {
+          val rawBody = Files.readString(target)
+          val boundedBody = rawBody.limitWords(MAX_LOADED_CONTEXT_WORDS)
           audit.add(
             RetrievalAuditEntry(
               action = "loaded",
@@ -219,9 +251,18 @@ class PersonalGraphSessionStartRetrievalService(
               reason = "root orienting note is always loaded first",
             ),
           )
+          if (boundedBody != rawBody) {
+            audit.add(
+              RetrievalAuditEntry(
+                action = "bounded_loaded_context",
+                subject = VaultLayout.BRAIAN_FILENAME,
+                reason = "root orientation exceeded $MAX_LOADED_CONTEXT_WORDS words and was truncated",
+              ),
+            )
+          }
           RetrievedRootDocument(
             path = VaultLayout.BRAIAN_FILENAME,
-            body = Files.readString(target),
+            body = boundedBody,
             loadOrder = loadOrder,
             reason = "root orienting note is always loaded first",
           )
@@ -241,6 +282,7 @@ class PersonalGraphSessionStartRetrievalService(
   private suspend fun loadBranch(
     branch: String,
     reason: String,
+    classification: RetrievalClassification,
     loadedBranches: MutableList<RetrievedBranch>,
     skippedBranches: MutableList<SkippedBranch>,
     audit: MutableList<RetrievalAuditEntry>,
@@ -250,7 +292,9 @@ class PersonalGraphSessionStartRetrievalService(
       skip(branch, "branch is outside the vault root or crosses a symlink", skippedBranches, audit)
       return emptyList()
     }
-    val nodes = repository.listNodesInBranch(branch).sortedBy { it.id.value }
+    val nodes = repository.listNodesInBranch(branch)
+      .filter { it.isVisibleInStateBranch(branch, classification.domain) }
+      .sortedBy { it.id.value }
     loadedBranches.add(RetrievedBranch(branch = branch, reason = reason, nodeCount = nodes.size))
     audit.add(
       RetrievalAuditEntry(
@@ -332,15 +376,16 @@ class PersonalGraphSessionStartRetrievalService(
     patternLinks = directPatternLinks().map { it.value },
     loadOrder = loadOrder,
     reason = reason,
+    type = mapType(),
+    category = mapCategory(),
+    domain = mapDomain(),
+    scope = mapScope(),
+    scopes = mapScopes(),
+    updated = updatedAt.toDateString(),
+    date = mapDate(),
+    summary = mapSummary(),
+    aliases = mapAliases(),
   )
-
-  private fun VaultNode.directPatternLinks(): List<NodeId> = when (this) {
-    is StateNode -> patternLinks
-    is EpisodeNode -> patternLinks
-    is PatternNode -> patternLinks
-    is SubjectNode -> patternLinks
-    is EmotionalStateNode -> patternLinks
-  }.distinctBy { it.value }
 
   private fun skip(
     branch: String,
@@ -371,10 +416,16 @@ class PersonalGraphSessionStartRetrievalService(
       "general classification loads durable knowledge branch"
     private const val REASON_DOMAIN_WORK_CAPMO: String =
       "classified work/capmo from first substantive message"
+    private const val REASON_DOMAIN_WORK_SKILL_BILL: String =
+      "classified work/skill-bill from first substantive message"
+    private const val REASON_DOMAIN_WORK_READIAN: String =
+      "classified work/readian from first substantive message"
+    private const val REASON_DOMAIN_WORK_CONTEXT_APP: String =
+      "classified work/context-app from first substantive message"
     private const val REASON_DOMAIN_PERSONAL: String =
       "classified personal from first substantive message"
-    private const val REASON_DOMAIN_CREATIVE: String =
-      "classified creative from first substantive message"
+    private const val REASON_DOMAIN_CREATIVE_MUSIC: String =
+      "classified creative/music from first substantive message"
     private const val REASON_EMOTIONAL_REQUESTED: String =
       "explicit emotional/self-reflection context"
 
@@ -383,12 +434,35 @@ class PersonalGraphSessionStartRetrievalService(
       VaultLayout.BRANCH_STATE_ROLES to REASON_ROLES_ALWAYS,
     )
 
-    private val WORK_TERMS: List<String> = listOf(
+    private val WORK_CAPMO_TERMS: List<String> = listOf(
       "capmo",
-      "work",
-      "job",
-      "company",
-      "manager",
+    )
+
+    private val WORK_SKILL_BILL_TERMS: List<String> = listOf(
+      "skill-bill",
+      "skill bill",
+      "skillbill",
+      "skill",
+      "skills",
+      "agent workflow",
+    )
+
+    private val WORK_READIAN_TERMS: List<String> = listOf(
+      "readian",
+      "editorial",
+      "assignment desk",
+      "article",
+      "articles",
+      "news",
+    )
+
+    private val WORK_CONTEXT_APP_TERMS: List<String> = listOf(
+      "context-app",
+      "context app",
+      "context",
+      "shelf",
+      "desktop app",
+      "macos app",
     )
 
     private val PERSONAL_TERMS: List<String> = listOf(
@@ -399,7 +473,7 @@ class PersonalGraphSessionStartRetrievalService(
       "purchase",
     )
 
-    private val CREATIVE_TERMS: List<String> = listOf(
+    private val CREATIVE_MUSIC_TERMS: List<String> = listOf(
       "creative",
       "writing",
       "story",

@@ -11,6 +11,8 @@ import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldContainAll
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldContain
+import io.kotest.matchers.string.shouldNotContain
 
 class MarkdownFrontmatterCodecRoundTripTest :
   FunSpec({
@@ -31,6 +33,67 @@ class MarkdownFrontmatterCodecRoundTripTest :
       decoded.confidence shouldBe source.confidence
       decoded.body shouldBe source.body
       decoded.links.map { it.value } shouldBe listOf("state/roles/current-role")
+    }
+
+    test("state node without scope round-trips without emitting scope frontmatter") {
+      val source = VaultNodeFixtures.stateNode(id = "state/preferences/global", body = "Global body.\n")
+
+      val encoded = codec.encode(source)
+      val decoded = codec.decode(source.id, encoded) as StateNode
+
+      encoded shouldNotContain "\nscope:"
+      encoded shouldNotContain "\nscopes:"
+      decoded.scope shouldBe null
+      decoded.scopes shouldBe emptyList()
+    }
+
+    test("state node with singular scope round-trips scope frontmatter") {
+      val source = VaultNodeFixtures.stateNode(
+        id = "state/preferences/capmo-only",
+        body = "Scoped body.\n",
+        scope = "work/capmo",
+      )
+
+      val encoded = codec.encode(source)
+      val decoded = codec.decode(source.id, encoded) as StateNode
+
+      encoded shouldContain "scope: \"work/capmo\""
+      encoded shouldNotContain "\nscopes:"
+      decoded.scope shouldBe "work/capmo"
+      decoded.scopes shouldBe emptyList()
+    }
+
+    test("state node with plural scopes round-trips scopes frontmatter") {
+      val source = VaultNodeFixtures.stateNode(
+        id = "state/preferences/multi-scope",
+        body = "Scoped body.\n",
+        scopes = listOf("work/capmo", "work/skill-bill"),
+      )
+
+      val encoded = codec.encode(source)
+      val decoded = codec.decode(source.id, encoded) as StateNode
+
+      encoded shouldNotContain "\nscope:"
+      encoded shouldContain "scopes:"
+      decoded.scope shouldBe null
+      decoded.scopes shouldBe listOf("work/capmo", "work/skill-bill")
+    }
+
+    test("state node with singular and plural scopes round-trips both frontmatter fields") {
+      val source = VaultNodeFixtures.stateNode(
+        id = "state/preferences/both-scope-shapes",
+        body = "Scoped body.\n",
+        scope = "general",
+        scopes = listOf("work/readian", "creative/music"),
+      )
+
+      val encoded = codec.encode(source)
+      val decoded = codec.decode(source.id, encoded) as StateNode
+
+      encoded shouldContain "scope: \"general\""
+      encoded shouldContain "scopes:"
+      decoded.scope shouldBe "general"
+      decoded.scopes shouldBe listOf("work/readian", "creative/music")
     }
 
     test("state consolidation metadata round-trips through encode + decode") {

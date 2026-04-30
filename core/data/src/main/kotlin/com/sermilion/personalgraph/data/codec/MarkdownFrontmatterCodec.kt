@@ -37,8 +37,16 @@ class MarkdownFrontmatterCodec {
     ),
   )
 
+  private val stateYaml: Yaml = Yaml(
+    configuration = YamlConfiguration(
+      encodeDefaults = false,
+      strictMode = false,
+      breakScalarsAt = Int.MAX_VALUE,
+    ),
+  )
+
   fun encode(node: VaultNode): String = when (node) {
-    is StateNode -> renderEncoded(yaml.encodeToString(VaultNodeMappers.toStateFrontmatter(node)), node.body)
+    is StateNode -> renderEncoded(stateYaml.encodeToString(VaultNodeMappers.toStateFrontmatter(node)), node.body)
     is EpisodeNode -> renderEncoded(yaml.encodeToString(VaultNodeMappers.toEpisodeFrontmatter(node)), node.body)
     is PatternNode -> renderEncoded(yaml.encodeToString(VaultNodeMappers.toPatternFrontmatter(node)), node.body)
     is SubjectNode -> renderEncoded(yaml.encodeToString(VaultNodeMappers.toSubjectFrontmatter(node)), node.body)
@@ -57,8 +65,21 @@ class MarkdownFrontmatterCodec {
     return decodeOrLogged(id, raw)
   }
 
-  private fun decodeOrLogged(id: NodeId, raw: String): VaultNode? = try {
-    decodeUnsafe(id, raw)
+  fun decodePreview(id: NodeId, raw: String, bodyWordLimit: Int): VaultNode? {
+    val sizeBytes = raw.toByteArray(Charsets.UTF_8).size
+    if (sizeBytes > MAX_FILE_SIZE_BYTES) {
+      logger.warn { "decodePreview skipped: id=$id size=$sizeBytes exceeds max $MAX_FILE_SIZE_BYTES bytes" }
+      return null
+    }
+    return decodeOrLogged(id, raw) { body -> body.limitWords(bodyWordLimit) }
+  }
+
+  private fun decodeOrLogged(
+    id: NodeId,
+    raw: String,
+    bodyTransform: (String) -> String = { it },
+  ): VaultNode? = try {
+    decodeUnsafe(id, raw, bodyTransform)
   } catch (e: SerializationException) {
     logger.warn(e) { "Failed to decode markdown for id=$id reason=${e.reasonString()}" }
     null
@@ -73,30 +94,35 @@ class MarkdownFrontmatterCodec {
     null
   }
 
-  private fun decodeUnsafe(id: NodeId, raw: String): VaultNode? {
+  private fun decodeUnsafe(
+    id: NodeId,
+    raw: String,
+    bodyTransform: (String) -> String,
+  ): VaultNode? {
     val (frontmatterText, body) = splitFrontmatter(raw) ?: return null
     val type = peekType(frontmatterText) ?: return null
     val bodyLinks = scanWikilinks(body)
+    val mappedBody = bodyTransform(body)
     return when (type) {
       VaultNodeType.State -> {
         val fm = yaml.decodeFromString<StateNodeFrontmatterDataModel>(frontmatterText)
-        VaultNodeMappers.fromStateFrontmatter(id, fm, body, bodyLinks)
+        VaultNodeMappers.fromStateFrontmatter(id, fm, mappedBody, bodyLinks)
       }
       VaultNodeType.Episode -> {
         val fm = yaml.decodeFromString<EpisodeNodeFrontmatterDataModel>(frontmatterText)
-        VaultNodeMappers.fromEpisodeFrontmatter(id, fm, body, bodyLinks)
+        VaultNodeMappers.fromEpisodeFrontmatter(id, fm, mappedBody, bodyLinks)
       }
       VaultNodeType.Pattern -> {
         val fm = yaml.decodeFromString<PatternNodeFrontmatterDataModel>(frontmatterText)
-        VaultNodeMappers.fromPatternFrontmatter(id, fm, body, bodyLinks)
+        VaultNodeMappers.fromPatternFrontmatter(id, fm, mappedBody, bodyLinks)
       }
       VaultNodeType.Subject -> {
         val fm = yaml.decodeFromString<SubjectNodeFrontmatterDataModel>(frontmatterText)
-        VaultNodeMappers.fromSubjectFrontmatter(id, fm, body, bodyLinks)
+        VaultNodeMappers.fromSubjectFrontmatter(id, fm, mappedBody, bodyLinks)
       }
       VaultNodeType.EmotionalState -> {
         val fm = yaml.decodeFromString<EmotionalStateNodeFrontmatterDataModel>(frontmatterText)
-        VaultNodeMappers.fromEmotionalStateFrontmatter(id, fm, body, bodyLinks)
+        VaultNodeMappers.fromEmotionalStateFrontmatter(id, fm, mappedBody, bodyLinks)
       }
     }
   }
@@ -160,6 +186,12 @@ class MarkdownFrontmatterCodec {
   }
 
   private fun Throwable.reasonString(): String = "${this::class.simpleName}: ${this.message.orEmpty()}"
+
+  private fun String.limitWords(maxWords: Int): String {
+    val words = trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+    if (words.size <= maxWords) return trim()
+    return words.take(maxWords).joinToString(" ") + "..."
+  }
 
   companion object {
     private const val FENCE: String = "---"

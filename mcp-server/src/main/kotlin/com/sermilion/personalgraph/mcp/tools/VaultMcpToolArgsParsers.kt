@@ -11,8 +11,13 @@ import com.sermilion.personalgraph.domain.model.Confidence
 import com.sermilion.personalgraph.domain.model.EpisodeType
 import com.sermilion.personalgraph.domain.model.Intensity
 import com.sermilion.personalgraph.domain.model.StateCategory
+import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalMode
+import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalRequest
 import kotlinx.datetime.Instant
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 
 internal const val PERMISSION_DENIED_PEOPLE: String = "people/ is read-blocked by default"
 internal const val PERMISSION_DENIED_OUTSIDE: String = "path is outside the vault root"
@@ -48,6 +53,11 @@ internal data class EpisodeRaw(
   val intensity: Intensity?,
 )
 
+internal data class ScopeFields(
+  val scope: String?,
+  val scopes: List<String>,
+)
+
 internal fun parseStateCore(args: JsonObject): Parsed<StateCore> {
   val id = args.stringOrNull(ToolSchemas.KEY_ID)
     ?: return Parsed.Failure(invalidInputJson(ToolSchemas.KEY_ID, REASON_MISSING))
@@ -60,60 +70,89 @@ internal fun parseStateCore(args: JsonObject): Parsed<StateCore> {
   }
 }
 
+internal fun parseScopeFields(args: JsonObject): Parsed<ScopeFields> {
+  val scope = args.optionalStringArgument(ToolSchemas.KEY_SCOPE)
+  val scopes = args.stringArrayArgument(ToolSchemas.KEY_SCOPES)
+  return when {
+    scope is Parsed.Failure -> Parsed.Failure(scope.json)
+    scopes is Parsed.Failure -> Parsed.Failure(scopes.json)
+    scope is Parsed.Success && scopes is Parsed.Success -> Parsed.Success(
+      ScopeFields(scope = scope.value, scopes = scopes.value),
+    )
+    else -> error("unreachable parsed scope state")
+  }
+}
+
 internal fun parseCaptureObservationArgs(args: JsonObject): Parsed<CaptureObservationArgs> {
   val observation = args.stringOrNull(ToolSchemas.KEY_OBSERVATION)
     ?: return Parsed.Failure(invalidInputJson(ToolSchemas.KEY_OBSERVATION, REASON_MISSING))
   val suggestedKindRaw = args.stringOrNull(ToolSchemas.KEY_SUGGESTED_KIND)
   val suggestedKind = suggestedKindRaw?.let(::parseCaptureObservationKind)
-  if (suggestedKindRaw != null && suggestedKind == null) {
-    return Parsed.Failure(invalidInputJson(ToolSchemas.KEY_SUGGESTED_KIND, REASON_INVALID))
+  val scopeFields = parseScopeFields(args)
+  return when {
+    suggestedKindRaw != null && suggestedKind == null ->
+      Parsed.Failure(invalidInputJson(ToolSchemas.KEY_SUGGESTED_KIND, REASON_INVALID))
+    scopeFields is Parsed.Failure -> Parsed.Failure(scopeFields.json)
+    scopeFields is Parsed.Success -> Parsed.Success(
+      CaptureObservationArgs(
+        observation = observation,
+        sourceContext = args.stringOrNull(ToolSchemas.KEY_SOURCE_CONTEXT).orEmpty(),
+        suggestedKind = suggestedKind,
+        id = args.stringOrNull(ToolSchemas.KEY_ID),
+        category = args.stringOrNull(ToolSchemas.KEY_CATEGORY)?.let(::parseStateCategory),
+        confidence = args.stringOrNull(ToolSchemas.KEY_CONFIDENCE)?.let(::parseConfidence),
+        date = args.stringOrNull(ToolSchemas.KEY_DATE)?.let(::parseInstant),
+        episodeType = args.stringOrNull(ToolSchemas.KEY_EPISODE_TYPE)?.let(::parseEpisodeType),
+        domain = args.stringOrNull(ToolSchemas.KEY_DOMAIN),
+        topic = args.stringOrNull(ToolSchemas.KEY_TOPIC),
+        intensity = args.stringOrNull(ToolSchemas.KEY_INTENSITY)?.let(::parseIntensity),
+        links = args.stringListOrNull(ToolSchemas.KEY_LINKS).orEmpty().toNodeIds(),
+        sensitive = args.booleanOrNull(ToolSchemas.KEY_SENSITIVE) == true,
+        scope = scopeFields.value.scope,
+        scopes = scopeFields.value.scopes,
+      ),
+    )
+    else -> error("unreachable parsed capture observation state")
   }
-  return Parsed.Success(
-    CaptureObservationArgs(
-      observation = observation,
-      sourceContext = args.stringOrNull(ToolSchemas.KEY_SOURCE_CONTEXT).orEmpty(),
-      suggestedKind = suggestedKind,
-      id = args.stringOrNull(ToolSchemas.KEY_ID),
-      category = args.stringOrNull(ToolSchemas.KEY_CATEGORY)?.let(::parseStateCategory),
-      confidence = args.stringOrNull(ToolSchemas.KEY_CONFIDENCE)?.let(::parseConfidence),
-      date = args.stringOrNull(ToolSchemas.KEY_DATE)?.let(::parseInstant),
-      episodeType = args.stringOrNull(ToolSchemas.KEY_EPISODE_TYPE)?.let(::parseEpisodeType),
-      domain = args.stringOrNull(ToolSchemas.KEY_DOMAIN),
-      topic = args.stringOrNull(ToolSchemas.KEY_TOPIC),
-      intensity = args.stringOrNull(ToolSchemas.KEY_INTENSITY)?.let(::parseIntensity),
-      links = args.stringListOrNull(ToolSchemas.KEY_LINKS).orEmpty().toNodeIds(),
-      sensitive = args.booleanOrNull(ToolSchemas.KEY_SENSITIVE) == true,
-    ),
-  )
 }
 
 internal fun parseWriteStateArgs(args: JsonObject): Parsed<WriteStateArgs> = when (val core = parseStateCore(args)) {
   is Parsed.Failure -> Parsed.Failure(core.json)
-  is Parsed.Success -> Parsed.Success(
-    WriteStateArgs(
-      id = core.value.id,
-      category = core.value.category,
-      confidence = core.value.confidence,
-      body = args.stringOrNull(ToolSchemas.KEY_BODY).orEmpty(),
-      links = args.stringListOrNull(ToolSchemas.KEY_LINKS).orEmpty().toNodeIds(),
-      sensitive = args.booleanOrNull(ToolSchemas.KEY_SENSITIVE) == true,
-    ),
-  )
+  is Parsed.Success -> when (val scopeFields = parseScopeFields(args)) {
+    is Parsed.Failure -> Parsed.Failure(scopeFields.json)
+    is Parsed.Success -> Parsed.Success(
+      WriteStateArgs(
+        id = core.value.id,
+        category = core.value.category,
+        confidence = core.value.confidence,
+        body = args.stringOrNull(ToolSchemas.KEY_BODY).orEmpty(),
+        links = args.stringListOrNull(ToolSchemas.KEY_LINKS).orEmpty().toNodeIds(),
+        sensitive = args.booleanOrNull(ToolSchemas.KEY_SENSITIVE) == true,
+        scope = scopeFields.value.scope,
+        scopes = scopeFields.value.scopes,
+      ),
+    )
+  }
 }
 
 internal fun parseWriteToStagingArgs(args: JsonObject): Parsed<WriteToStagingArgs> {
   val core = parseStateCore(args)
   return when (core) {
     is Parsed.Failure -> Parsed.Failure(core.json)
-    is Parsed.Success -> Parsed.Success(
-      WriteToStagingArgs(
-        id = core.value.id,
-        category = core.value.category,
-        confidence = core.value.confidence,
-        body = args.stringOrNull(ToolSchemas.KEY_BODY).orEmpty(),
-        links = args.stringListOrNull(ToolSchemas.KEY_LINKS).orEmpty().toNodeIds(),
-      ),
-    )
+    is Parsed.Success -> when (val scopeFields = parseScopeFields(args)) {
+      is Parsed.Failure -> Parsed.Failure(scopeFields.json)
+      is Parsed.Success -> Parsed.Success(
+        WriteToStagingArgs(
+          id = core.value.id,
+          category = core.value.category,
+          confidence = core.value.confidence,
+          body = args.stringOrNull(ToolSchemas.KEY_BODY).orEmpty(),
+          links = args.stringListOrNull(ToolSchemas.KEY_LINKS).orEmpty().toNodeIds(),
+          scope = scopeFields.value.scope,
+          scopes = scopeFields.value.scopes,
+        ),
+      )
+    }
   }
 }
 
@@ -207,6 +246,74 @@ private fun resolveFlagSensitiveSuccess(args: JsonObject, targetPath: String): P
   val payloadKindRaw = args.stringOrNull(ToolSchemas.KEY_PAYLOAD_KIND) ?: ToolSchemas.PAYLOAD_KIND_STATE
   val payloadKind = checkNotNull(parsePayloadKind(payloadKindRaw))
   return Parsed.Success(FlagSensitiveArgs(targetPath = targetPath, payloadKind = payloadKind))
+}
+
+internal fun parseSessionStartRetrievalRequest(args: JsonObject): Parsed<SessionStartRetrievalRequest> {
+  val message = args.stringOrNull(ToolSchemas.KEY_MESSAGE)
+    ?: return Parsed.Failure(invalidInputJson(ToolSchemas.KEY_MESSAGE, REASON_MISSING))
+  return when (val mode = parseSessionStartRetrievalModeArgument(args)) {
+    is Parsed.Failure -> Parsed.Failure(mode.json)
+    is Parsed.Success -> Parsed.Success(
+      SessionStartRetrievalRequest(
+        firstSubstantiveMessage = message,
+        retrievalMode = mode.value,
+      ),
+    )
+  }
+}
+
+private fun JsonObject.optionalStringArgument(key: String): Parsed<String?> = when (val element = this[key]) {
+  null -> Parsed.Success(null)
+  is JsonPrimitive -> {
+    val content = element.contentOrNull
+    if (element.isString && content != null) {
+      Parsed.Success(content)
+    } else {
+      Parsed.Failure(invalidInputJson(key, REASON_INVALID))
+    }
+  }
+  else -> Parsed.Failure(invalidInputJson(key, REASON_INVALID))
+}
+
+private fun JsonObject.stringArrayArgument(key: String): Parsed<List<String>> {
+  var error: JsonObject? = null
+  val values = when (val element = this[key]) {
+    null -> emptyList()
+    is JsonArray -> buildList {
+      for (entry in element) {
+        val primitive = entry as? JsonPrimitive
+        val content = primitive?.contentOrNull
+        if (primitive?.isString == true && content != null) {
+          add(content)
+        } else {
+          error = invalidInputJson(key, REASON_INVALID)
+        }
+      }
+    }
+    else -> {
+      error = invalidInputJson(key, REASON_INVALID)
+      emptyList()
+    }
+  }
+  return error?.let { Parsed.Failure(it) } ?: Parsed.Success(values)
+}
+
+private fun parseSessionStartRetrievalModeArgument(
+  args: JsonObject,
+): Parsed<SessionStartRetrievalMode> {
+  val modeRaw = args.optionalStringArgument(ToolSchemas.KEY_RETRIEVAL_MODE)
+  return when (modeRaw) {
+    is Parsed.Failure -> Parsed.Failure(modeRaw.json)
+    is Parsed.Success -> {
+      val raw = modeRaw.value
+      val mode = raw?.let(::parseSessionStartRetrievalMode)
+      when {
+        raw == null -> Parsed.Success(SessionStartRetrievalMode.MapFirst)
+        mode != null -> Parsed.Success(mode)
+        else -> Parsed.Failure(invalidInputJson(ToolSchemas.KEY_RETRIEVAL_MODE, REASON_INVALID))
+      }
+    }
+  }
 }
 
 private fun parseCaptureObservationKind(raw: String): CaptureObservationKind? = when (raw.lowercase()) {
