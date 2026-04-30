@@ -34,6 +34,8 @@ data class CaptureObservationArgs(
   val intensity: Intensity?,
   val links: List<NodeId>,
   val sensitive: Boolean,
+  val scope: String? = null,
+  val scopes: List<String> = emptyList(),
 )
 
 enum class CaptureObservationKind {
@@ -48,6 +50,8 @@ data class WriteStateArgs(
   val body: String,
   val links: List<NodeId>,
   val sensitive: Boolean,
+  val scope: String? = null,
+  val scopes: List<String> = emptyList(),
 )
 
 data class WriteEpisodeArgs(
@@ -68,6 +72,8 @@ data class WriteToStagingArgs(
   val confidence: Confidence,
   val body: String,
   val links: List<NodeId>,
+  val scope: String? = null,
+  val scopes: List<String> = emptyList(),
 )
 
 data class FlagSensitiveArgs(val targetPath: String, val payloadKind: PayloadKind)

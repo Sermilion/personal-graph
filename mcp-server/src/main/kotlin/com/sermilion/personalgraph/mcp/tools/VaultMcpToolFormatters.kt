@@ -11,11 +11,12 @@ import com.sermilion.personalgraph.domain.model.PatternNode
 import com.sermilion.personalgraph.domain.model.StateNode
 import com.sermilion.personalgraph.domain.model.SubjectNode
 import com.sermilion.personalgraph.domain.model.VaultNode
+import com.sermilion.personalgraph.domain.retrieval.CompactMapEntry
+import com.sermilion.personalgraph.domain.retrieval.LoadedFullBodyContext
 import com.sermilion.personalgraph.domain.retrieval.RetrievalAuditEntry
 import com.sermilion.personalgraph.domain.retrieval.RetrievalClassification
 import com.sermilion.personalgraph.domain.retrieval.RetrievedBranch
 import com.sermilion.personalgraph.domain.retrieval.RetrievedNode
-import com.sermilion.personalgraph.domain.retrieval.RetrievedRootDocument
 import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalReport
 import com.sermilion.personalgraph.domain.retrieval.SkippedBranch
 import kotlinx.serialization.json.JsonObject
@@ -55,23 +56,48 @@ internal fun nodeJson(node: VaultNode): JsonObject = buildJsonObject {
     put(ToolSchemas.KEY_DOMAIN, JsonPrimitive(node.domain))
     put(ToolSchemas.KEY_SUBJECT, JsonPrimitive(node.subject))
   }
+  if (node is StateNode) {
+    node.scope?.let { put(ToolSchemas.KEY_SCOPE, JsonPrimitive(it)) }
+    if (node.scopes.isNotEmpty()) {
+      put(ToolSchemas.KEY_SCOPES, stringArrayJson(node.scopes))
+    }
+  }
 }
 
 internal fun SessionStartRetrievalReport.toJson(): JsonObject = buildJsonObject {
   put(ToolSchemas.KEY_STATUS, JsonPrimitive(ToolSchemas.STATUS_OK))
-  rootDocument?.let { put(ToolSchemas.KEY_ROOT, rootDocumentJson(it)) }
+  rootDocument?.let { root ->
+    put(
+      ToolSchemas.KEY_ROOT,
+      buildJsonObject {
+        put(ToolSchemas.KEY_PATH, JsonPrimitive(root.path))
+        put(ToolSchemas.KEY_BODY, JsonPrimitive(root.body))
+        put(ToolSchemas.KEY_LOAD_ORDER, JsonPrimitive(root.loadOrder))
+        put(ToolSchemas.KEY_REASON, JsonPrimitive(root.reason))
+      },
+    )
+  }
   put(ToolSchemas.KEY_CLASSIFICATION, classificationJson(classification))
   put(ToolSchemas.KEY_LOADED_BRANCHES, loadedBranchesJson(loadedBranches))
   put(ToolSchemas.KEY_NODES, retrievedNodesJson(loadedNodes))
+  put(ToolSchemas.KEY_LOADED_FULL_BODY_CONTEXT, loadedFullBodyContextJson(loadedFullBodyContext))
+  put(ToolSchemas.KEY_COMPACT_MAP_ENTRIES, compactMapEntriesJson(compactMapEntries))
+  put(
+    ToolSchemas.KEY_SUGGESTED_READS,
+    buildJsonArray {
+      for (read in suggestedReads) {
+        add(
+          buildJsonObject {
+            put(ToolSchemas.KEY_ID, JsonPrimitive(read.id))
+            put(ToolSchemas.KEY_REASON, JsonPrimitive(read.reason))
+          },
+        )
+      }
+    },
+  )
   put(ToolSchemas.KEY_SKIPPED_BRANCHES, skippedBranchesJson(skippedBranches))
   put(ToolSchemas.KEY_AUDIT, auditJson(audit))
-}
-
-private fun rootDocumentJson(root: RetrievedRootDocument): JsonObject = buildJsonObject {
-  put(ToolSchemas.KEY_PATH, JsonPrimitive(root.path))
-  put(ToolSchemas.KEY_BODY, JsonPrimitive(root.body))
-  put(ToolSchemas.KEY_LOAD_ORDER, JsonPrimitive(root.loadOrder))
-  put(ToolSchemas.KEY_REASON, JsonPrimitive(root.reason))
+  put(ToolSchemas.KEY_AUDIT_ENTRIES, auditJson(auditEntries))
 }
 
 private fun classificationJson(classification: RetrievalClassification): JsonObject = buildJsonObject {
@@ -103,6 +129,33 @@ private fun retrievedNodesJson(nodes: List<RetrievedNode>) = buildJsonArray {
         put(ToolSchemas.KEY_PATTERN_LINKS, stringArrayJson(node.patternLinks))
         put(ToolSchemas.KEY_LOAD_ORDER, JsonPrimitive(node.loadOrder))
         put(ToolSchemas.KEY_REASON, JsonPrimitive(node.reason))
+      },
+    )
+  }
+}
+
+private fun loadedFullBodyContextJson(context: List<LoadedFullBodyContext>) = buildJsonArray {
+  for (entry in context) {
+    add(
+      buildJsonObject {
+        put(ToolSchemas.KEY_ID, JsonPrimitive(entry.id))
+        put(ToolSchemas.KEY_BODY, JsonPrimitive(entry.body))
+        put(ToolSchemas.KEY_SOURCE, JsonPrimitive(entry.source.value))
+        put(ToolSchemas.KEY_LOAD_ORDER, JsonPrimitive(entry.loadOrder))
+        put(ToolSchemas.KEY_REASON, JsonPrimitive(entry.reason))
+      },
+    )
+  }
+}
+
+private fun compactMapEntriesJson(entries: List<CompactMapEntry>) = buildJsonArray {
+  for (entry in entries) {
+    add(
+      buildJsonObject {
+        put(ToolSchemas.KEY_ID, JsonPrimitive(entry.id))
+        put(ToolSchemas.KEY_KIND, JsonPrimitive(entry.kind.value))
+        put(ToolSchemas.KEY_REASON, JsonPrimitive(entry.reason))
+        entry.nodeCount?.let { put(ToolSchemas.KEY_NODE_COUNT, JsonPrimitive(it)) }
       },
     )
   }

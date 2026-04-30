@@ -46,12 +46,19 @@ object ToolSchemas {
   const val DESC_FIELD_PAYLOAD_KIND: String =
     "Expected payload kind for the targeted node. Must match the actual node type or the call is " +
       "rejected with invalid_input."
+  const val DESC_FIELD_SCOPE: String =
+    "Optional state scope, e.g. work/capmo or creative/music. Omit for global state."
+  const val DESC_FIELD_SCOPES: String =
+    "Optional state scopes for state that applies to multiple domains. Omit for global state."
+  const val DESC_FIELD_RETRIEVAL_MODE: String =
+    "Session-start retrieval mode. Defaults to map-first; full-loading is an explicit opt-in."
 
   const val KEY_ID: String = "id"
   const val KEY_OBSERVATION: String = "observation"
   const val KEY_SOURCE_CONTEXT: String = "source_context"
   const val KEY_SUGGESTED_KIND: String = "suggested_kind"
   const val KEY_MESSAGE: String = "message"
+  const val KEY_RETRIEVAL_MODE: String = "retrieval_mode"
   const val KEY_TOPIC: String = "topic"
   const val KEY_BODY: String = "body"
   const val KEY_LINKS: String = "links"
@@ -94,6 +101,14 @@ object ToolSchemas {
   const val KEY_EMOTIONAL_TERMS: String = "emotional_terms"
   const val KEY_NODE_COUNT: String = "node_count"
   const val KEY_PATTERN_LINKS: String = "pattern_links"
+  const val KEY_SCOPE: String = "scope"
+  const val KEY_SCOPES: String = "scopes"
+  const val KEY_LOADED_FULL_BODY_CONTEXT: String = "loaded_full_body_context"
+  const val KEY_COMPACT_MAP_ENTRIES: String = "compact_map_entries"
+  const val KEY_SUGGESTED_READS: String = "suggested_reads"
+  const val KEY_AUDIT_ENTRIES: String = "audit_entries"
+  const val KEY_SOURCE: String = "source"
+  const val KEY_KIND: String = "kind"
 
   const val STATUS_OK: String = "ok"
   const val STATUS_PERMISSION_DENIED: String = "permission_denied"
@@ -153,6 +168,7 @@ object ToolSchemas {
   )
 
   val ENUM_CAPTURE_OBSERVATION_KINDS: List<String> = listOf(PAYLOAD_KIND_STATE, PAYLOAD_KIND_EPISODE)
+  val ENUM_RETRIEVAL_MODES: List<String> = listOf("map-first", "full-loading")
 
   const val DECISION_REJECTED: String = "rejected"
   const val DECISION_STAGED_OBSERVATION: String = "staged_observation"

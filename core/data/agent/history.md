@@ -1,5 +1,15 @@
 # core/data — history
 
+## [2026-04-30] contract-and-scoped-state-foundation (PG-5)
+Areas: core/domain (retrieval + capture contracts), core/data (retrieval, capture, codec, mappers), mcp-server (schemas/parsers/formatters), cli, core/testing
+- `SessionStartRetrievalService` now has an explicit `SessionStartRetrievalMode`: default `MapFirst` keeps full-body context to `Braian.md` only, while `FullLoading` is the opt-in path for loaded node bodies; compatibility fields remain while new map-first fields are introduced
+- Active retrieval domains expanded to `work/capmo`, `work/skill-bill`, `work/readian`, `work/context-app`, `creative/music`, `personal`, and `general`; Capmo matching is now product-specific so generic `work` does not steal explicit project/domain prompts
+- `StateNode` carries optional `scope` plus plural `scopes`; broad state branch retrieval includes global state and filters scoped state by classified domain, with `General` excluding scoped state
+- State frontmatter uses state-specific YAML encoding with absent scope metadata omitted, preserving existing files while round-tripping singular/plural scoped metadata
+- Capture and MCP write paths now persist scoped state metadata; malformed `scope`, `scopes`, and `retrieval_mode` JSON shapes reject instead of silently defaulting
+Feature flag: N/A
+Acceptance criteria: 7/7 implemented
+
 ## [2026-04-27] cohesive-subject-hub-vault-organization (PG-4)
 Areas: core/data (subject hubs, capture, consolidation, repository), core/domain (layout/contracts), cli (consolidate reporting), mcp-server (tool schema/formatters), docs/tests
 - Added first-class `SubjectNode` markdown/frontmatter support plus canonical `domains/.../subjects/` routing so related feature/work context can accumulate in reusable hub notes with dated evidence instead of one-off files

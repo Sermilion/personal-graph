@@ -6,6 +6,7 @@ import com.sermilion.personalgraph.domain.model.EpisodeType
 import com.sermilion.personalgraph.domain.model.Intensity
 import com.sermilion.personalgraph.domain.model.NodeId
 import com.sermilion.personalgraph.domain.model.StateCategory
+import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalMode
 import kotlinx.datetime.Instant
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -81,6 +82,12 @@ internal fun parsePayloadKind(raw: String): PayloadKind? = when (raw.lowercase()
   ToolSchemas.PAYLOAD_KIND_PATTERN -> PayloadKind.Pattern
   ToolSchemas.PAYLOAD_KIND_SUBJECT -> PayloadKind.Subject
   ToolSchemas.PAYLOAD_KIND_EMOTIONAL_STATE -> PayloadKind.EmotionalState
+  else -> null
+}
+
+internal fun parseSessionStartRetrievalMode(raw: String): SessionStartRetrievalMode? = when (raw.lowercase()) {
+  SessionStartRetrievalMode.MapFirst.value -> SessionStartRetrievalMode.MapFirst
+  SessionStartRetrievalMode.FullLoading.value -> SessionStartRetrievalMode.FullLoading
   else -> null
 }
 

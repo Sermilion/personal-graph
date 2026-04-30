@@ -38,6 +38,9 @@ class SessionStartCommandTest :
       invocation.output shouldContain "branch=domains/work/capmo"
       invocation.output shouldContain "node=domains/work/capmo/events/review"
       invocation.output shouldContain "node=patterns/review-shape"
+      invocation.output shouldContain "loaded_full_body_context="
+      invocation.output shouldContain "compact_map_entries="
+      invocation.output shouldContain "suggested_reads=0"
       invocation.output shouldContain "skipped=people"
       invocation.output shouldContain "audit=classified"
     }

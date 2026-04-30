@@ -6,7 +6,13 @@ interface SessionStartRetrievalService {
 
 data class SessionStartRetrievalRequest(
   val firstSubstantiveMessage: String,
+  val retrievalMode: SessionStartRetrievalMode = SessionStartRetrievalMode.MapFirst,
 )
+
+enum class SessionStartRetrievalMode(val value: String) {
+  MapFirst("map-first"),
+  FullLoading("full-loading"),
+}
 
 data class SessionStartRetrievalReport(
   val rootDocument: RetrievedRootDocument?,
@@ -15,6 +21,10 @@ data class SessionStartRetrievalReport(
   val loadedNodes: List<RetrievedNode>,
   val skippedBranches: List<SkippedBranch>,
   val audit: List<RetrievalAuditEntry>,
+  val loadedFullBodyContext: List<LoadedFullBodyContext> = emptyList(),
+  val compactMapEntries: List<CompactMapEntry> = emptyList(),
+  val suggestedReads: List<SuggestedRead> = emptyList(),
+  val auditEntries: List<RetrievalAuditEntry> = audit,
 )
 
 data class RetrievalClassification(
@@ -26,8 +36,11 @@ data class RetrievalClassification(
 
 enum class RetrievalDomain(val value: String) {
   WorkCapmo("work/capmo"),
+  WorkSkillBill("work/skill-bill"),
+  WorkReadian("work/readian"),
+  WorkContextApp("work/context-app"),
+  CreativeMusic("creative/music"),
   Personal("personal"),
-  Creative("creative"),
   General("general"),
 }
 
@@ -50,6 +63,36 @@ data class RetrievedNode(
   val links: List<String>,
   val patternLinks: List<String>,
   val loadOrder: Int,
+  val reason: String,
+)
+
+data class LoadedFullBodyContext(
+  val id: String,
+  val body: String,
+  val source: FullBodyContextSource,
+  val loadOrder: Int,
+  val reason: String,
+)
+
+enum class FullBodyContextSource(val value: String) {
+  Root("root"),
+  Node("node"),
+}
+
+data class CompactMapEntry(
+  val id: String,
+  val kind: CompactMapEntryKind,
+  val reason: String,
+  val nodeCount: Int? = null,
+)
+
+enum class CompactMapEntryKind(val value: String) {
+  Branch("branch"),
+  Node("node"),
+}
+
+data class SuggestedRead(
+  val id: String,
   val reason: String,
 )
 

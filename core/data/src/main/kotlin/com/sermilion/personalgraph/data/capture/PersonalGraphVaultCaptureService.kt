@@ -74,6 +74,8 @@ class PersonalGraphVaultCaptureService(
       links = args.links,
       category = args.category,
       confidence = args.confidence,
+      scope = args.scope,
+      scopes = args.scopes,
     )
     return persistPrimary(node)
   }
@@ -133,6 +135,8 @@ class PersonalGraphVaultCaptureService(
       links = args.links,
       category = args.category,
       confidence = args.confidence,
+      scope = args.scope,
+      scopes = args.scopes,
     )
     return persistPrimary(node)
   }
@@ -158,6 +162,8 @@ class PersonalGraphVaultCaptureService(
         body = observationBody(observation, args.sourceContext),
         links = args.links,
         sensitive = true,
+        scope = args.scope,
+        scopes = args.scopes,
       ),
     )
     return CaptureObservationResult.Decided(
@@ -179,6 +185,8 @@ class PersonalGraphVaultCaptureService(
         confidence = Confidence.Low,
         body = observationBody(observation, args.sourceContext),
         links = args.links,
+        scope = args.scope,
+        scopes = args.scopes,
       ),
     )
     return CaptureObservationResult.Decided(
@@ -243,6 +251,8 @@ class PersonalGraphVaultCaptureService(
         body = observationBody(observation, args.sourceContext),
         links = args.links,
         sensitive = false,
+        scope = args.scope,
+        scopes = args.scopes,
       ),
     )
     return CaptureObservationResult.Decided(

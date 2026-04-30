@@ -37,8 +37,16 @@ class MarkdownFrontmatterCodec {
     ),
   )
 
+  private val stateYaml: Yaml = Yaml(
+    configuration = YamlConfiguration(
+      encodeDefaults = false,
+      strictMode = false,
+      breakScalarsAt = Int.MAX_VALUE,
+    ),
+  )
+
   fun encode(node: VaultNode): String = when (node) {
-    is StateNode -> renderEncoded(yaml.encodeToString(VaultNodeMappers.toStateFrontmatter(node)), node.body)
+    is StateNode -> renderEncoded(stateYaml.encodeToString(VaultNodeMappers.toStateFrontmatter(node)), node.body)
     is EpisodeNode -> renderEncoded(yaml.encodeToString(VaultNodeMappers.toEpisodeFrontmatter(node)), node.body)
     is PatternNode -> renderEncoded(yaml.encodeToString(VaultNodeMappers.toPatternFrontmatter(node)), node.body)
     is SubjectNode -> renderEncoded(yaml.encodeToString(VaultNodeMappers.toSubjectFrontmatter(node)), node.body)

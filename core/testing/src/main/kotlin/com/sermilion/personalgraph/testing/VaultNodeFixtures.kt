@@ -24,6 +24,8 @@ object VaultNodeFixtures {
     category: StateCategory = StateCategory.Preference,
     confidence: Confidence = Confidence.High,
     links: List<NodeId> = emptyList(),
+    scope: String? = null,
+    scopes: List<String> = emptyList(),
   ): StateNode = StateNode(
     id = NodeId(id),
     createdAt = sampleInstant,
@@ -32,6 +34,8 @@ object VaultNodeFixtures {
     links = links,
     category = category,
     confidence = confidence,
+    scope = scope,
+    scopes = scopes,
   )
 
   fun episodeNode(): EpisodeNode = EpisodeNode(

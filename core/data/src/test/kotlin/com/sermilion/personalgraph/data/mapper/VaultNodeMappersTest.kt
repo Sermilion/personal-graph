@@ -22,6 +22,28 @@ class VaultNodeMappersTest :
       frontmatter.updated shouldBe LocalDate(2026, 4, 24)
     }
 
+    test("StateNode scoped metadata maps to and from frontmatter") {
+      val source = VaultNodeFixtures.stateNode(
+        id = "state/preferences/scoped",
+        body = "Scoped body.\n",
+        scope = "work/capmo",
+        scopes = listOf("work/skill-bill", "creative/music"),
+      )
+
+      val frontmatter = VaultNodeMappers.toStateFrontmatter(source)
+      val decoded = VaultNodeMappers.fromStateFrontmatter(
+        id = source.id,
+        frontmatter = frontmatter,
+        body = source.body,
+        bodyLinks = emptyList(),
+      )
+
+      frontmatter.scope shouldBe "work/capmo"
+      frontmatter.scopes shouldBe listOf("work/skill-bill", "creative/music")
+      decoded?.scope shouldBe "work/capmo"
+      decoded?.scopes shouldBe listOf("work/skill-bill", "creative/music")
+    }
+
     test("PatternNode created/lastObserved convert through UTC timezone") {
       val source = VaultNodeFixtures.patternNode().copy(
         createdAt = Instant.parse("2026-04-24T22:00:00Z"),

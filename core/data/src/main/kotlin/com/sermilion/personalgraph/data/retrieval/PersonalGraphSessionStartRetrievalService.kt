@@ -12,12 +12,17 @@ import com.sermilion.personalgraph.domain.model.StateNode
 import com.sermilion.personalgraph.domain.model.SubjectNode
 import com.sermilion.personalgraph.domain.model.VaultNode
 import com.sermilion.personalgraph.domain.repository.VaultRepository
+import com.sermilion.personalgraph.domain.retrieval.CompactMapEntry
+import com.sermilion.personalgraph.domain.retrieval.CompactMapEntryKind
+import com.sermilion.personalgraph.domain.retrieval.FullBodyContextSource
+import com.sermilion.personalgraph.domain.retrieval.LoadedFullBodyContext
 import com.sermilion.personalgraph.domain.retrieval.RetrievalAuditEntry
 import com.sermilion.personalgraph.domain.retrieval.RetrievalClassification
 import com.sermilion.personalgraph.domain.retrieval.RetrievalDomain
 import com.sermilion.personalgraph.domain.retrieval.RetrievedBranch
 import com.sermilion.personalgraph.domain.retrieval.RetrievedNode
 import com.sermilion.personalgraph.domain.retrieval.RetrievedRootDocument
+import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalMode
 import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalReport
 import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalRequest
 import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalService
@@ -64,7 +69,7 @@ class PersonalGraphSessionStartRetrievalService(
 
     val seedNodes = mutableListOf<VaultNode>()
     for ((branch, reason) in branchPlan) {
-      val nodes = loadBranch(branch, reason, loadedBranches, skippedBranches, audit)
+      val nodes = loadBranch(branch, reason, classification, loadedBranches, skippedBranches, audit)
       seedNodes.addAll(nodes)
       for (node in nodes.sortedBy { it.id.value }) {
         loadedNodes.add(node.toRetrievedNode(++loadOrder, reason))
@@ -88,18 +93,28 @@ class PersonalGraphSessionStartRetrievalService(
       loadedNodes = loadedNodes,
       skippedBranches = skippedBranches.distinctBy { it.branch },
       audit = audit,
+      loadedFullBodyContext = loadedFullBodyContext(rootDocument, loadedNodes, request.retrievalMode),
+      compactMapEntries = compactMapEntries(loadedBranches, loadedNodes),
+      suggestedReads = emptyList(),
+      auditEntries = audit,
     )
   }
 
   private fun classify(message: String): RetrievalClassification {
-    val workMatches = matchedTerms(message, WORK_TERMS)
+    val capmoMatches = matchedTerms(message, WORK_CAPMO_TERMS)
+    val skillBillMatches = matchedTerms(message, WORK_SKILL_BILL_TERMS)
+    val readianMatches = matchedTerms(message, WORK_READIAN_TERMS)
+    val contextAppMatches = matchedTerms(message, WORK_CONTEXT_APP_TERMS)
     val personalMatches = matchedTerms(message, PERSONAL_TERMS)
-    val creativeMatches = matchedTerms(message, CREATIVE_TERMS)
+    val creativeMusicMatches = matchedTerms(message, CREATIVE_MUSIC_TERMS)
     val emotionalMatches = matchedTerms(message, EMOTIONAL_TERMS)
     val candidates = listOf(
-      RetrievalDomain.WorkCapmo to workMatches,
+      RetrievalDomain.WorkCapmo to capmoMatches,
+      RetrievalDomain.WorkSkillBill to skillBillMatches,
+      RetrievalDomain.WorkReadian to readianMatches,
+      RetrievalDomain.WorkContextApp to contextAppMatches,
       RetrievalDomain.Personal to personalMatches,
-      RetrievalDomain.Creative to creativeMatches,
+      RetrievalDomain.CreativeMusic to creativeMusicMatches,
     )
     val bestDomain = candidates
       .filter { it.second.isNotEmpty() }
@@ -109,9 +124,12 @@ class PersonalGraphSessionStartRetrievalService(
     return RetrievalClassification(
       domain = domain,
       matchedTerms = when (domain) {
-        RetrievalDomain.WorkCapmo -> workMatches
+        RetrievalDomain.WorkCapmo -> capmoMatches
+        RetrievalDomain.WorkSkillBill -> skillBillMatches
+        RetrievalDomain.WorkReadian -> readianMatches
+        RetrievalDomain.WorkContextApp -> contextAppMatches
         RetrievalDomain.Personal -> personalMatches
-        RetrievalDomain.Creative -> creativeMatches
+        RetrievalDomain.CreativeMusic -> creativeMusicMatches
         RetrievalDomain.General -> emptyList()
       },
       emotionalContextRequested = emotionalMatches.isNotEmpty(),
@@ -151,11 +169,20 @@ class PersonalGraphSessionStartRetrievalService(
       RetrievalDomain.WorkCapmo -> listOf(
         "${VaultLayout.BRANCH_DOMAINS}/work/capmo" to REASON_DOMAIN_WORK_CAPMO,
       )
+      RetrievalDomain.WorkSkillBill -> listOf(
+        "${VaultLayout.BRANCH_DOMAINS}/work/skill-bill" to REASON_DOMAIN_WORK_SKILL_BILL,
+      )
+      RetrievalDomain.WorkReadian -> listOf(
+        "${VaultLayout.BRANCH_DOMAINS}/work/readian" to REASON_DOMAIN_WORK_READIAN,
+      )
+      RetrievalDomain.WorkContextApp -> listOf(
+        "${VaultLayout.BRANCH_DOMAINS}/work/context-app" to REASON_DOMAIN_WORK_CONTEXT_APP,
+      )
       RetrievalDomain.Personal -> listOf(
         "${VaultLayout.BRANCH_DOMAINS}/personal" to REASON_DOMAIN_PERSONAL,
       )
-      RetrievalDomain.Creative -> listOf(
-        "${VaultLayout.BRANCH_DOMAINS}/creative" to REASON_DOMAIN_CREATIVE,
+      RetrievalDomain.CreativeMusic -> listOf(
+        "${VaultLayout.BRANCH_DOMAINS}/creative/music" to REASON_DOMAIN_CREATIVE_MUSIC,
       )
       RetrievalDomain.General -> emptyList()
     }
@@ -241,6 +268,7 @@ class PersonalGraphSessionStartRetrievalService(
   private suspend fun loadBranch(
     branch: String,
     reason: String,
+    classification: RetrievalClassification,
     loadedBranches: MutableList<RetrievedBranch>,
     skippedBranches: MutableList<SkippedBranch>,
     audit: MutableList<RetrievalAuditEntry>,
@@ -250,7 +278,9 @@ class PersonalGraphSessionStartRetrievalService(
       skip(branch, "branch is outside the vault root or crosses a symlink", skippedBranches, audit)
       return emptyList()
     }
-    val nodes = repository.listNodesInBranch(branch).sortedBy { it.id.value }
+    val nodes = repository.listNodesInBranch(branch)
+      .filter { it.isVisibleInStateBranch(branch, classification.domain) }
+      .sortedBy { it.id.value }
     loadedBranches.add(RetrievedBranch(branch = branch, reason = reason, nodeCount = nodes.size))
     audit.add(
       RetrievalAuditEntry(
@@ -371,10 +401,16 @@ class PersonalGraphSessionStartRetrievalService(
       "general classification loads durable knowledge branch"
     private const val REASON_DOMAIN_WORK_CAPMO: String =
       "classified work/capmo from first substantive message"
+    private const val REASON_DOMAIN_WORK_SKILL_BILL: String =
+      "classified work/skill-bill from first substantive message"
+    private const val REASON_DOMAIN_WORK_READIAN: String =
+      "classified work/readian from first substantive message"
+    private const val REASON_DOMAIN_WORK_CONTEXT_APP: String =
+      "classified work/context-app from first substantive message"
     private const val REASON_DOMAIN_PERSONAL: String =
       "classified personal from first substantive message"
-    private const val REASON_DOMAIN_CREATIVE: String =
-      "classified creative from first substantive message"
+    private const val REASON_DOMAIN_CREATIVE_MUSIC: String =
+      "classified creative/music from first substantive message"
     private const val REASON_EMOTIONAL_REQUESTED: String =
       "explicit emotional/self-reflection context"
 
@@ -383,12 +419,35 @@ class PersonalGraphSessionStartRetrievalService(
       VaultLayout.BRANCH_STATE_ROLES to REASON_ROLES_ALWAYS,
     )
 
-    private val WORK_TERMS: List<String> = listOf(
+    private val WORK_CAPMO_TERMS: List<String> = listOf(
       "capmo",
-      "work",
-      "job",
-      "company",
-      "manager",
+    )
+
+    private val WORK_SKILL_BILL_TERMS: List<String> = listOf(
+      "skill-bill",
+      "skill bill",
+      "skillbill",
+      "skill",
+      "skills",
+      "agent workflow",
+    )
+
+    private val WORK_READIAN_TERMS: List<String> = listOf(
+      "readian",
+      "editorial",
+      "assignment desk",
+      "article",
+      "articles",
+      "news",
+    )
+
+    private val WORK_CONTEXT_APP_TERMS: List<String> = listOf(
+      "context-app",
+      "context app",
+      "context",
+      "shelf",
+      "desktop app",
+      "macos app",
     )
 
     private val PERSONAL_TERMS: List<String> = listOf(
@@ -399,7 +458,7 @@ class PersonalGraphSessionStartRetrievalService(
       "purchase",
     )
 
-    private val CREATIVE_TERMS: List<String> = listOf(
+    private val CREATIVE_MUSIC_TERMS: List<String> = listOf(
       "creative",
       "writing",
       "story",
@@ -438,6 +497,74 @@ class PersonalGraphSessionStartRetrievalService(
       "mood",
       "feeling",
       "feelings",
+    )
+  }
+}
+
+private fun VaultNode.isVisibleInStateBranch(
+  branch: String,
+  domain: RetrievalDomain,
+): Boolean = !branch.startsWith("${VaultLayout.BRANCH_STATE}/") ||
+  (this as? StateNode)?.isVisibleForRetrievalDomain(domain) != false
+
+private fun StateNode.isVisibleForRetrievalDomain(domain: RetrievalDomain): Boolean {
+  val hasNoScope = scope == null && scopes.isEmpty()
+  val matchesDomain = domain != RetrievalDomain.General &&
+    (scope == domain.value || domain.value in scopes)
+  return hasNoScope || matchesDomain
+}
+
+private fun loadedFullBodyContext(
+  rootDocument: RetrievedRootDocument?,
+  loadedNodes: List<RetrievedNode>,
+  retrievalMode: SessionStartRetrievalMode,
+): List<LoadedFullBodyContext> = buildList {
+  if (rootDocument != null) {
+    add(
+      LoadedFullBodyContext(
+        id = rootDocument.path,
+        body = rootDocument.body,
+        source = FullBodyContextSource.Root,
+        loadOrder = rootDocument.loadOrder,
+        reason = rootDocument.reason,
+      ),
+    )
+  }
+  if (retrievalMode != SessionStartRetrievalMode.FullLoading) return@buildList
+  for (node in loadedNodes) {
+    add(
+      LoadedFullBodyContext(
+        id = node.id,
+        body = node.body,
+        source = FullBodyContextSource.Node,
+        loadOrder = node.loadOrder,
+        reason = node.reason,
+      ),
+    )
+  }
+}
+
+private fun compactMapEntries(
+  loadedBranches: List<RetrievedBranch>,
+  loadedNodes: List<RetrievedNode>,
+): List<CompactMapEntry> = buildList {
+  for (branch in loadedBranches) {
+    add(
+      CompactMapEntry(
+        id = branch.branch,
+        kind = CompactMapEntryKind.Branch,
+        reason = branch.reason,
+        nodeCount = branch.nodeCount,
+      ),
+    )
+  }
+  for (node in loadedNodes) {
+    add(
+      CompactMapEntry(
+        id = node.id,
+        kind = CompactMapEntryKind.Node,
+        reason = node.reason,
+      ),
     )
   }
 }

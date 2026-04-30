@@ -22,6 +22,8 @@ data class StateNode(
   val sourceIds: List<NodeId> = emptyList(),
   val patternLinks: List<NodeId> = emptyList(),
   val contradictedBy: List<NodeId> = emptyList(),
+  val scope: String? = null,
+  val scopes: List<String> = emptyList(),
 ) : VaultNode
 
 data class EpisodeNode(

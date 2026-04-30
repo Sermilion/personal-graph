@@ -12,6 +12,8 @@ internal object ToolSchemaBuilder {
       put(ToolSchemas.KEY_CONFIDENCE, ToolSchemaProperties.enum(ToolSchemas.ENUM_CONFIDENCES))
       put(ToolSchemas.KEY_BODY, ToolSchemaProperties.string())
       put(ToolSchemas.KEY_LINKS, ToolSchemaProperties.stringArray(ToolSchemas.DESC_FIELD_LINKS))
+      put(ToolSchemas.KEY_SCOPE, ToolSchemaProperties.string(ToolSchemas.DESC_FIELD_SCOPE))
+      put(ToolSchemas.KEY_SCOPES, ToolSchemaProperties.stringArray(ToolSchemas.DESC_FIELD_SCOPES))
       put(ToolSchemas.KEY_SENSITIVE, ToolSchemaProperties.boolean())
     },
     required = listOf(
@@ -46,6 +48,8 @@ internal object ToolSchemaBuilder {
       put(ToolSchemas.KEY_TOPIC, ToolSchemaProperties.string())
       put(ToolSchemas.KEY_INTENSITY, ToolSchemaProperties.enum(ToolSchemas.ENUM_INTENSITIES))
       put(ToolSchemas.KEY_LINKS, ToolSchemaProperties.stringArray(ToolSchemas.DESC_FIELD_LINKS))
+      put(ToolSchemas.KEY_SCOPE, ToolSchemaProperties.string(ToolSchemas.DESC_FIELD_SCOPE))
+      put(ToolSchemas.KEY_SCOPES, ToolSchemaProperties.stringArray(ToolSchemas.DESC_FIELD_SCOPES))
       put(ToolSchemas.KEY_SENSITIVE, ToolSchemaProperties.boolean())
     },
     required = listOf(ToolSchemas.KEY_OBSERVATION),
@@ -80,6 +84,8 @@ internal object ToolSchemaBuilder {
       put(ToolSchemas.KEY_CONFIDENCE, ToolSchemaProperties.enum(ToolSchemas.ENUM_CONFIDENCES))
       put(ToolSchemas.KEY_BODY, ToolSchemaProperties.string())
       put(ToolSchemas.KEY_LINKS, ToolSchemaProperties.stringArray(ToolSchemas.DESC_FIELD_LINKS))
+      put(ToolSchemas.KEY_SCOPE, ToolSchemaProperties.string(ToolSchemas.DESC_FIELD_SCOPE))
+      put(ToolSchemas.KEY_SCOPES, ToolSchemaProperties.stringArray(ToolSchemas.DESC_FIELD_SCOPES))
     },
     required = listOf(
       ToolSchemas.KEY_ID,
@@ -123,6 +129,10 @@ internal object ToolSchemaBuilder {
   fun sessionStartSchema(): ToolSchema = ToolSchema(
     properties = buildJsonObject {
       put(ToolSchemas.KEY_MESSAGE, ToolSchemaProperties.string())
+      put(
+        ToolSchemas.KEY_RETRIEVAL_MODE,
+        ToolSchemaProperties.enum(ToolSchemas.ENUM_RETRIEVAL_MODES, ToolSchemas.DESC_FIELD_RETRIEVAL_MODE),
+      )
     },
     required = listOf(ToolSchemas.KEY_MESSAGE),
   )

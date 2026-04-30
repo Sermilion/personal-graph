@@ -19,12 +19,17 @@ import com.sermilion.personalgraph.domain.model.Confidence
 import com.sermilion.personalgraph.domain.model.NodeId
 import com.sermilion.personalgraph.domain.model.StateCategory
 import com.sermilion.personalgraph.domain.repository.VaultRepository
+import com.sermilion.personalgraph.domain.retrieval.CompactMapEntry
+import com.sermilion.personalgraph.domain.retrieval.CompactMapEntryKind
+import com.sermilion.personalgraph.domain.retrieval.FullBodyContextSource
+import com.sermilion.personalgraph.domain.retrieval.LoadedFullBodyContext
 import com.sermilion.personalgraph.domain.retrieval.RetrievalAuditEntry
 import com.sermilion.personalgraph.domain.retrieval.RetrievalClassification
 import com.sermilion.personalgraph.domain.retrieval.RetrievalDomain
 import com.sermilion.personalgraph.domain.retrieval.RetrievedBranch
 import com.sermilion.personalgraph.domain.retrieval.RetrievedNode
 import com.sermilion.personalgraph.domain.retrieval.RetrievedRootDocument
+import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalMode
 import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalReport
 import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalRequest
 import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalService
@@ -33,6 +38,7 @@ import com.sermilion.personalgraph.testing.VaultNodeFixtures
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
+import io.kotest.matchers.types.shouldBeInstanceOf
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
@@ -67,6 +73,11 @@ class VaultMcpToolsTest :
         put(ToolSchemas.KEY_CATEGORY, JsonPrimitive("preference"))
         put(ToolSchemas.KEY_CONFIDENCE, JsonPrimitive("medium"))
         put(ToolSchemas.KEY_BODY, JsonPrimitive("Use 2 spaces."))
+        put(ToolSchemas.KEY_SCOPE, JsonPrimitive("work/capmo"))
+        put(
+          ToolSchemas.KEY_SCOPES,
+          JsonArray(listOf(JsonPrimitive("work/capmo"), JsonPrimitive("work/skill-bill"))),
+        )
       }
 
       val result = ctx.tools.writeState(args)
@@ -77,6 +88,8 @@ class VaultMcpToolsTest :
       captured.captured.body shouldBe "Use 2 spaces."
       captured.captured.category shouldBe StateCategory.Preference
       captured.captured.confidence shouldBe Confidence.Medium
+      captured.captured.scope shouldBe "work/capmo"
+      captured.captured.scopes shouldBe listOf("work/capmo", "work/skill-bill")
       coVerify(exactly = 1) { ctx.capture.writeStateObservation(any()) }
     }
 
@@ -92,6 +105,38 @@ class VaultMcpToolsTest :
 
       (result[ToolSchemas.KEY_STATUS] as JsonPrimitive).content shouldBe ToolSchemas.STATUS_INVALID_INPUT
       (result[ToolSchemas.KEY_FIELD] as JsonPrimitive).content shouldBe ToolSchemas.KEY_ID
+      coVerify(exactly = 0) { ctx.capture.writeStateObservation(any()) }
+    }
+
+    test("write_state rejects non-string scope") {
+      val ctx = newTools()
+      val args = buildJsonObject {
+        put(ToolSchemas.KEY_ID, JsonPrimitive("editor-indent"))
+        put(ToolSchemas.KEY_CATEGORY, JsonPrimitive("preference"))
+        put(ToolSchemas.KEY_CONFIDENCE, JsonPrimitive("medium"))
+        put(ToolSchemas.KEY_SCOPE, JsonPrimitive(123))
+      }
+
+      val result = ctx.tools.writeState(args)
+
+      (result[ToolSchemas.KEY_STATUS] as JsonPrimitive).content shouldBe ToolSchemas.STATUS_INVALID_INPUT
+      (result[ToolSchemas.KEY_FIELD] as JsonPrimitive).content shouldBe ToolSchemas.KEY_SCOPE
+      coVerify(exactly = 0) { ctx.capture.writeStateObservation(any()) }
+    }
+
+    test("write_state rejects scopes arrays with non-string entries") {
+      val ctx = newTools()
+      val args = buildJsonObject {
+        put(ToolSchemas.KEY_ID, JsonPrimitive("editor-indent"))
+        put(ToolSchemas.KEY_CATEGORY, JsonPrimitive("preference"))
+        put(ToolSchemas.KEY_CONFIDENCE, JsonPrimitive("medium"))
+        put(ToolSchemas.KEY_SCOPES, JsonArray(listOf(JsonPrimitive("work/capmo"), JsonPrimitive(123))))
+      }
+
+      val result = ctx.tools.writeState(args)
+
+      (result[ToolSchemas.KEY_STATUS] as JsonPrimitive).content shouldBe ToolSchemas.STATUS_INVALID_INPUT
+      (result[ToolSchemas.KEY_FIELD] as JsonPrimitive).content shouldBe ToolSchemas.KEY_SCOPES
       coVerify(exactly = 0) { ctx.capture.writeStateObservation(any()) }
     }
 
@@ -112,6 +157,8 @@ class VaultMcpToolsTest :
         put(ToolSchemas.KEY_SOURCE_CONTEXT, JsonPrimitive("design discussion"))
         put(ToolSchemas.KEY_SUGGESTED_KIND, JsonPrimitive(ToolSchemas.PAYLOAD_KIND_STATE))
         put(ToolSchemas.KEY_LINKS, JsonArray(listOf(JsonPrimitive("state/preferences/example"))))
+        put(ToolSchemas.KEY_SCOPE, JsonPrimitive("work/context-app"))
+        put(ToolSchemas.KEY_SCOPES, JsonArray(listOf(JsonPrimitive("work/context-app"))))
       }
 
       val result = ctx.tools.captureObservation(args)
@@ -123,6 +170,8 @@ class VaultMcpToolsTest :
       captured.captured.suggestedKind shouldBe CaptureObservationKind.State
       captured.captured.sourceContext shouldBe "design discussion"
       captured.captured.links shouldBe listOf(NodeId("state/preferences/example"))
+      captured.captured.scope shouldBe "work/context-app"
+      captured.captured.scopes shouldBe listOf("work/context-app")
       coVerify(exactly = 1) { ctx.capture.captureObservation(any()) }
     }
 
@@ -326,6 +375,23 @@ class VaultMcpToolsTest :
         audit = listOf(
           RetrievalAuditEntry("classified", "work/capmo", "matched terms: capmo,pr"),
         ),
+        loadedFullBodyContext = listOf(
+          LoadedFullBodyContext(
+            id = "Braian.md",
+            body = "# Braian\n",
+            source = FullBodyContextSource.Root,
+            loadOrder = 1,
+            reason = "root orienting note is always loaded first",
+          ),
+        ),
+        compactMapEntries = listOf(
+          CompactMapEntry(
+            id = "domains/work/capmo",
+            kind = CompactMapEntryKind.Branch,
+            reason = "classified work/capmo from first substantive message",
+            nodeCount = 1,
+          ),
+        ),
       )
 
       val result = ctx.tools.sessionStart(
@@ -338,7 +404,55 @@ class VaultMcpToolsTest :
       val nodes = result[ToolSchemas.KEY_NODES] as JsonArray
       ((nodes[0] as JsonObject)[ToolSchemas.KEY_ID] as JsonPrimitive).content shouldBe
         "domains/work/capmo/events/review"
+      val loadedContext = result[ToolSchemas.KEY_LOADED_FULL_BODY_CONTEXT] as JsonArray
+      ((loadedContext[0] as JsonObject)[ToolSchemas.KEY_SOURCE] as JsonPrimitive).content shouldBe "root"
+      val compactMap = result[ToolSchemas.KEY_COMPACT_MAP_ENTRIES] as JsonArray
+      ((compactMap[0] as JsonObject)[ToolSchemas.KEY_KIND] as JsonPrimitive).content shouldBe "branch"
+      result[ToolSchemas.KEY_SUGGESTED_READS].shouldBeInstanceOf<JsonArray>().size shouldBe 0
       coVerify(exactly = 1) { ctx.retrieval.retrieve(SessionStartRetrievalRequest("review a Capmo PR")) }
+    }
+
+    test("session_start forwards explicit full-loading retrieval mode") {
+      val ctx = newTools()
+      val captured = slot<SessionStartRetrievalRequest>()
+      coEvery { ctx.retrieval.retrieve(capture(captured)) } returns SessionStartRetrievalReport(
+        rootDocument = null,
+        classification = RetrievalClassification(
+          domain = RetrievalDomain.General,
+          matchedTerms = emptyList(),
+          emotionalContextRequested = false,
+          emotionalMatchedTerms = emptyList(),
+        ),
+        loadedBranches = emptyList(),
+        loadedNodes = emptyList(),
+        skippedBranches = emptyList(),
+        audit = emptyList(),
+      )
+
+      val result = ctx.tools.sessionStart(
+        buildJsonObject {
+          put(ToolSchemas.KEY_MESSAGE, JsonPrimitive("load everything"))
+          put(ToolSchemas.KEY_RETRIEVAL_MODE, JsonPrimitive("full-loading"))
+        },
+      )
+
+      (result[ToolSchemas.KEY_STATUS] as JsonPrimitive).content shouldBe ToolSchemas.STATUS_OK
+      captured.captured.retrievalMode shouldBe SessionStartRetrievalMode.FullLoading
+    }
+
+    test("session_start rejects non-string retrieval mode") {
+      val ctx = newTools()
+
+      val result = ctx.tools.sessionStart(
+        buildJsonObject {
+          put(ToolSchemas.KEY_MESSAGE, JsonPrimitive("load everything"))
+          put(ToolSchemas.KEY_RETRIEVAL_MODE, JsonPrimitive(123))
+        },
+      )
+
+      (result[ToolSchemas.KEY_STATUS] as JsonPrimitive).content shouldBe ToolSchemas.STATUS_INVALID_INPUT
+      (result[ToolSchemas.KEY_FIELD] as JsonPrimitive).content shouldBe ToolSchemas.KEY_RETRIEVAL_MODE
+      coVerify(exactly = 0) { ctx.retrieval.retrieve(any()) }
     }
 
     test("session_start requires a message") {
@@ -374,12 +488,28 @@ class VaultMcpToolsTest :
       description shouldContain "silently dropped"
     }
 
+    test("write_state schema exposes scope and scopes fields") {
+      val schema = ToolSchemaBuilder.writeStateSchema()
+
+      schema.properties!![ToolSchemas.KEY_SCOPE].shouldBeInstanceOf<JsonObject>()
+      schema.properties!![ToolSchemas.KEY_SCOPES].shouldBeInstanceOf<JsonObject>()
+    }
+
     test("capture_observation schema describes personal-graph as the decision owner") {
       val schema = ToolSchemaBuilder.captureObservationSchema()
       val observationField = schema.properties!![ToolSchemas.KEY_OBSERVATION] as JsonObject
       val description = (observationField["description"] as JsonPrimitive).content
       description shouldContain "Personal-graph owns"
       description shouldContain "reject"
+    }
+
+    test("session_start schema exposes explicit retrieval mode") {
+      val schema = ToolSchemaBuilder.sessionStartSchema()
+      val retrievalModeField = schema.properties!![ToolSchemas.KEY_RETRIEVAL_MODE] as JsonObject
+      val description = (retrievalModeField["description"] as JsonPrimitive).content
+
+      description shouldContain "Defaults to map-first"
+      description shouldContain "full-loading"
     }
 
     test("flag_sensitive schema describes payload_kind rejection on type mismatch") {
