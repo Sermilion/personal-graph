@@ -26,8 +26,12 @@ internal fun shouldStage(args: CaptureObservationArgs, observation: String): Boo
   val suggestedEpisode = args.suggestedKind == CaptureObservationKind.Episode
   val incompleteEpisode = suggestedEpisode && !hasCompleteEpisodeShape(args)
   val noStructureHint = args.suggestedKind == null && args.category == null
+  val eventLikeWithoutDurableStructure = looksEventLike(observation) && !hasDurableStateSignal(observation)
   val lacksReusableStructure = !hasReusableSignal(observation) && noStructureHint
-  return lowConfidence || incompleteEpisode || lacksReusableStructure
+  return lowConfidence ||
+    incompleteEpisode ||
+    (noStructureHint && eventLikeWithoutDurableStructure) ||
+    lacksReusableStructure
 }
 
 internal fun shouldCaptureEpisode(args: CaptureObservationArgs): Boolean {
@@ -46,15 +50,7 @@ internal fun observationBody(observation: String, sourceContext: String): String
   }
 }
 
-internal fun generatedObservationId(value: String): String = slugifyCandidate(
-  value.lineSequence().firstOrNull().orEmpty(),
-)
-  .split('-')
-  .filter(String::isNotBlank)
-  .filterNot { it in GENERATED_ID_STOP_WORDS }
-  .take(MAX_GENERATED_ID_WORDS)
-  .joinToString("-")
-  .ifEmpty { SLUG_FALLBACK }
+internal fun generatedObservationId(value: String): String = GeneratedSlugPolicy.generatedObservationId(value)
 
 internal fun inferStateCategory(observation: String): StateCategory {
   val normalized = observation.lowercase()
@@ -123,19 +119,21 @@ private fun hasReusableSignal(observation: String): Boolean {
   return REUSABLE_SIGNALS.any { normalized.contains(it) }
 }
 
+private fun hasDurableStateSignal(observation: String): Boolean {
+  val normalized = observation.lowercase()
+  return DURABLE_STATE_SIGNALS.any { normalized.contains(it) }
+}
+
+internal fun looksEventLike(observation: String): Boolean {
+  val normalized = observation.lowercase()
+  return EVENT_LIKE_PATTERNS.any { it.containsMatchIn(normalized) }
+}
+
 private fun looksSensitive(value: String): Boolean {
   val normalized = value.lowercase()
   return SENSITIVE_PATTERNS.any { it.containsMatchIn(normalized) }
 }
 
-private fun slugifyCandidate(value: String): String = value.lowercase()
-  .replace(SLUG_NORMALIZE_REGEX, "-")
-  .trim('-')
-  .ifEmpty { SLUG_FALLBACK }
-
-private val SLUG_NORMALIZE_REGEX: Regex = Regex("[^a-z0-9]+")
-private const val SLUG_FALLBACK: String = "untitled"
-private const val MAX_GENERATED_ID_WORDS: Int = 8
 private const val MIN_OBSERVATION_LENGTH: Int = 12
 
 private val PREFERENCE_SIGNALS: List<String> = listOf(
@@ -185,6 +183,37 @@ private val REUSABLE_SIGNALS: List<String> = listOf(
   "canonical",
 )
 
+private val DURABLE_STATE_SIGNALS: List<String> = listOf(
+  "always",
+  "never",
+  "prefer",
+  "prefers",
+  "wants",
+  "rule",
+  "pattern",
+  "remember",
+  "future",
+  "architecture",
+  "source of truth",
+  "default",
+  "canonical",
+)
+
+private val EVENT_LIKE_SIGNALS: List<String> = listOf(
+  "decision",
+  "decided",
+  "fix",
+  "fixed",
+  "regression",
+  "chose",
+  "chosen",
+  "implemented",
+)
+
+private val EVENT_LIKE_PATTERNS: List<Regex> = EVENT_LIKE_SIGNALS.map { signal ->
+  Regex("""\b${Regex.escape(signal)}\b""")
+}
+
 private val ROUTINE_NOISE_PATTERNS: List<Regex> = listOf(
   Regex("^ran (tests|checks|build|gradle|lint)\\b"),
   Regex("^git status\\b"),
@@ -202,18 +231,4 @@ private val SENSITIVE_PATTERNS: List<Regex> = listOf(
   Regex("\\bcredential(s)?\\s*[:=]"),
   Regex("\\bprivate message\\b"),
   Regex("\\braw dm\\b"),
-)
-
-private val GENERATED_ID_STOP_WORDS: Set<String> = setOf(
-  "a",
-  "an",
-  "and",
-  "as",
-  "for",
-  "in",
-  "of",
-  "on",
-  "or",
-  "the",
-  "to",
 )

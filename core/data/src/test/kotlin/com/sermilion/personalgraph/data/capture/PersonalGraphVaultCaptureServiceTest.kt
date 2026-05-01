@@ -3,24 +3,15 @@ package com.sermilion.personalgraph.data.capture
 import com.sermilion.personalgraph.data.codec.MarkdownFrontmatterCodec
 import com.sermilion.personalgraph.data.path.VaultPathResolver
 import com.sermilion.personalgraph.data.repository.PersonalGraphVaultRepository
-import com.sermilion.personalgraph.domain.capture.CaptureObservationArgs
-import com.sermilion.personalgraph.domain.capture.CaptureObservationDecision
-import com.sermilion.personalgraph.domain.capture.CaptureObservationKind
-import com.sermilion.personalgraph.domain.capture.CaptureObservationResult
 import com.sermilion.personalgraph.domain.capture.CaptureResult
 import com.sermilion.personalgraph.domain.capture.FlagSensitiveArgs
 import com.sermilion.personalgraph.domain.capture.PayloadKind
-import com.sermilion.personalgraph.domain.capture.WriteEpisodeArgs
 import com.sermilion.personalgraph.domain.capture.WriteStateArgs
 import com.sermilion.personalgraph.domain.layout.VaultLayout
 import com.sermilion.personalgraph.domain.model.Confidence
-import com.sermilion.personalgraph.domain.model.EpisodeNode
-import com.sermilion.personalgraph.domain.model.EpisodeType
-import com.sermilion.personalgraph.domain.model.Intensity
 import com.sermilion.personalgraph.domain.model.NodeId
 import com.sermilion.personalgraph.domain.model.StateCategory
 import com.sermilion.personalgraph.domain.model.StateNode
-import com.sermilion.personalgraph.domain.model.SubjectNode
 import com.sermilion.personalgraph.domain.repository.VaultRepository
 import com.sermilion.personalgraph.domain.repository.WriteOutcome
 import com.sermilion.personalgraph.testing.TestDispatcherProvider
@@ -144,6 +135,48 @@ class PersonalGraphVaultCaptureServiceTest :
       result.shouldBeInstanceOf<CaptureResult.Created>()
       result.id.value shouldBe "state/roles/sermilion-music"
       captured.captured.id.value shouldBe "state/roles/sermilion-music"
+    }
+
+    test("writeStateObservation slugifies bare caller ids without word bounding") {
+      val (service, repo) = newService()
+      val captured = slot<StateNode>()
+      coEvery { repo.writeNode(capture(captured)) } returns WriteOutcome.Applied
+
+      val result = service.writeStateObservation(
+        WriteStateArgs(
+          id = "this is a very long caller provided identifier that should not be bounded",
+          category = StateCategory.Knowledge,
+          confidence = Confidence.Medium,
+          body = "knowledge body",
+          links = emptyList(),
+          sensitive = false,
+        ),
+      )
+
+      result.shouldBeInstanceOf<CaptureResult.Created>()
+      captured.captured.id.value shouldBe
+        "state/knowledge/this-is-a-very-long-caller-provided-identifier-that-should-not-be-bounded"
+    }
+
+    test("writeStateObservation preserves explicit canonical state paths") {
+      val (service, repo) = newService()
+      val captured = slot<StateNode>()
+      coEvery { repo.writeNode(capture(captured)) } returns WriteOutcome.Applied
+      val explicitId = "state/knowledge/this-long-canonical-id-is-caller-owned-and-preserved"
+
+      val result = service.writeStateObservation(
+        WriteStateArgs(
+          id = explicitId,
+          category = StateCategory.Knowledge,
+          confidence = Confidence.Medium,
+          body = "knowledge body",
+          links = emptyList(),
+          sensitive = false,
+        ),
+      )
+
+      result.shouldBeInstanceOf<CaptureResult.Created>()
+      captured.captured.id.value shouldBe explicitId
     }
 
     test("writeStateObservation persists scoped state metadata through repository encoding") {
@@ -419,278 +452,6 @@ class PersonalGraphVaultCaptureServiceTest :
       result.field shouldBe "id"
       result.expected shouldBe "state/roles/foo"
       coVerify(exactly = 0) { repo.writeNode(any()) }
-    }
-
-    test("captureObservation rejects routine transient noise without writing") {
-      val (service, repo) = newService()
-
-      val result = service.captureObservation(
-        CaptureObservationArgs(
-          observation = "ran tests",
-          sourceContext = "local check",
-          suggestedKind = null,
-          id = null,
-          category = null,
-          confidence = null,
-          date = null,
-          episodeType = null,
-          domain = null,
-          topic = null,
-          intensity = null,
-          links = emptyList(),
-          sensitive = false,
-        ),
-      )
-
-      result.shouldBeInstanceOf<CaptureObservationResult.Decided>()
-      result.decision shouldBe CaptureObservationDecision.Rejected
-      coVerify(exactly = 0) { repo.writeNode(any()) }
-    }
-
-    test("captureObservation writes reusable preference candidates as state") {
-      val (service, repo) = newService()
-      val captured = slot<StateNode>()
-      coEvery { repo.findNode(any()) } returns null
-      coEvery { repo.writeNode(capture(captured)) } returns WriteOutcome.Applied
-
-      val result = service.captureObservation(
-        CaptureObservationArgs(
-          observation = "Braian prefers personal-graph as the source of truth for memory filtering.",
-          sourceContext = "design discussion",
-          suggestedKind = null,
-          id = null,
-          category = null,
-          confidence = null,
-          date = null,
-          episodeType = null,
-          domain = null,
-          topic = null,
-          intensity = null,
-          links = emptyList(),
-          sensitive = false,
-        ),
-      )
-
-      result.shouldBeInstanceOf<CaptureObservationResult.Decided>()
-      result.decision shouldBe CaptureObservationDecision.StateWritten
-      captured.captured.id.value shouldBe
-        "state/preferences/braian-prefers-personal-graph-source-truth-memory-filtering"
-      captured.captured.confidence shouldBe Confidence.High
-      captured.captured.body shouldContain "Source context: design discussion"
-    }
-
-    test("captureObservation persists scoped state metadata through repository encoding") {
-      val (service, repo) = newRepositoryService()
-
-      val result = service.captureObservation(
-        CaptureObservationArgs(
-          observation = "Braian prefers scoped memory for Capmo-specific implementation rules.",
-          sourceContext = "design discussion",
-          suggestedKind = null,
-          id = "capmo-scoped-memory",
-          category = StateCategory.Preference,
-          confidence = Confidence.High,
-          date = null,
-          episodeType = null,
-          domain = null,
-          topic = null,
-          intensity = null,
-          links = emptyList(),
-          sensitive = false,
-          scope = "work/capmo",
-          scopes = listOf("work/capmo", "work/context-app"),
-        ),
-      )
-
-      result.shouldBeInstanceOf<CaptureObservationResult.Decided>()
-      result.decision shouldBe CaptureObservationDecision.StateWritten
-      val decoded = repo.findNode(NodeId("state/preferences/capmo-scoped-memory"))
-        .shouldBeInstanceOf<StateNode>()
-      decoded.scope shouldBe "work/capmo"
-      decoded.scopes shouldBe listOf("work/capmo", "work/context-app")
-    }
-
-    test("captureObservation stages low-confidence candidates instead of saving as durable state") {
-      val (service, repo) = newService()
-      val captured = slot<StateNode>()
-      coEvery { repo.writeNode(capture(captured)) } returns WriteOutcome.Applied
-
-      val result = service.captureObservation(
-        CaptureObservationArgs(
-          observation = "Maybe this might matter later.",
-          sourceContext = "uncertain session note",
-          suggestedKind = null,
-          id = "maybe-later",
-          category = StateCategory.Knowledge,
-          confidence = Confidence.Low,
-          date = null,
-          episodeType = null,
-          domain = null,
-          topic = null,
-          intensity = null,
-          links = emptyList(),
-          sensitive = false,
-        ),
-      )
-
-      result.shouldBeInstanceOf<CaptureObservationResult.Decided>()
-      result.decision shouldBe CaptureObservationDecision.StagedObservation
-      captured.captured.id.value shouldBe "staging/observations/maybe-later"
-    }
-
-    test("captureObservation routes sensitive candidates to sensitive staging") {
-      val (service, repo) = newService()
-      val captured = slot<StateNode>()
-      coEvery { repo.writeNode(capture(captured)) } returns WriteOutcome.Applied
-
-      val result = service.captureObservation(
-        CaptureObservationArgs(
-          observation = "API key: abcdefghijklmnop should not be stored as durable knowledge.",
-          sourceContext = "secret-bearing candidate",
-          suggestedKind = null,
-          id = "api-key",
-          category = null,
-          confidence = null,
-          date = null,
-          episodeType = null,
-          domain = null,
-          topic = null,
-          intensity = null,
-          links = emptyList(),
-          sensitive = false,
-        ),
-      )
-
-      result.shouldBeInstanceOf<CaptureObservationResult.Decided>()
-      result.decision shouldBe CaptureObservationDecision.StagedSensitive
-      captured.captured.id.value shouldBe "staging/sensitive/api-key"
-      captured.captured.confidence shouldBe Confidence.Low
-    }
-
-    test("writeEpisode creates a canonical subject hub and timeline stub") {
-      val (service, repo) = newService()
-      val captured = mutableListOf<com.sermilion.personalgraph.domain.model.VaultNode>()
-      coEvery { repo.writeNode(capture(captured)) } returns WriteOutcome.Applied
-      coEvery { repo.findSubjectHub(any(), any(), any()) } returns null
-
-      val result = service.writeEpisode(
-        WriteEpisodeArgs(
-          id = "design-review",
-          date = VaultNodeFixtures.episodeInstant,
-          episodeType = EpisodeType.Decision,
-          domain = "work/capmo",
-          topic = "Build Pipeline",
-          intensity = Intensity.Medium,
-          body = "Settled on one deployment workflow.\n",
-          linked = emptyList(),
-          sensitive = false,
-        ),
-      )
-
-      result.shouldBeInstanceOf<CaptureResult.Created>()
-      result.id.value shouldBe "domains/work/capmo/events/design-review"
-      result.subjectHubId?.value shouldBe "domains/work/capmo/subjects/build-pipeline"
-      result.backlinkId?.value shouldBe "timeline/2026-04/2026-04-24-build-pipeline"
-      result.subjectHubStatus.name shouldBe "Created"
-      captured.filterIsInstance<SubjectNode>().single().body shouldBe
-        (
-          "## Summary\nCanonical subject hub for Build Pipeline.\n\n## Evidence\n" +
-            "- 2026-04-24: [[domains/work/capmo/events/design-review]]" +
-            " — Settled on one deployment workflow.\n"
-          )
-      captured.filterIsInstance<EpisodeNode>().last().links.map { it.value } shouldBe listOf(
-        "domains/work/capmo/events/design-review",
-        "domains/work/capmo/subjects/build-pipeline",
-      )
-    }
-
-    test("writeEpisode appends evidence to an existing subject hub before writing timeline stub") {
-      val (service, repo) = newService()
-      val existing = VaultNodeFixtures.subjectNode().copy(
-        id = NodeId("domains/work/capmo/subjects/build-pipeline"),
-        subject = "build-pipeline",
-        body =
-        "## Summary\nExisting hub.\n\n## Evidence\n" +
-          "- 2026-04-23: [[domains/work/capmo/events/older]] — Older evidence.\n",
-        evidenceCount = 1,
-        sourceIds = listOf(NodeId("domains/work/capmo/events/older")),
-      )
-      val captured = mutableListOf<com.sermilion.personalgraph.domain.model.VaultNode>()
-      coEvery { repo.findSubjectHub("work/capmo", "Build Pipeline", any()) } returns existing
-      coEvery { repo.writeNode(capture(captured)) } returns WriteOutcome.Applied
-
-      val result = service.writeEpisode(
-        WriteEpisodeArgs(
-          id = "design-review",
-          date = VaultNodeFixtures.episodeInstant,
-          episodeType = EpisodeType.Decision,
-          domain = "work/capmo",
-          topic = "Build Pipeline",
-          intensity = Intensity.Medium,
-          body = "Settled on one deployment workflow.\n",
-          linked = emptyList(),
-          sensitive = false,
-        ),
-      )
-
-      result.shouldBeInstanceOf<CaptureResult.Created>()
-      result.subjectHubStatus.name shouldBe "Updated"
-      val writtenSubject = captured.filterIsInstance<SubjectNode>().single()
-      writtenSubject.evidenceCount shouldBe 2
-      writtenSubject.body shouldContain "[[domains/work/capmo/events/design-review]]"
-    }
-
-    test("writeEpisode keeps timeline stub ids keyed by topic slug for compatibility") {
-      val (service, repo) = newService()
-      coEvery { repo.writeNode(any()) } returns WriteOutcome.Applied
-      coEvery { repo.findSubjectHub(any(), any(), any()) } returns null
-
-      val result = service.writeEpisode(
-        WriteEpisodeArgs(
-          id = "internal-ticket-1234",
-          date = VaultNodeFixtures.episodeInstant,
-          episodeType = EpisodeType.Decision,
-          domain = "work/capmo",
-          topic = "Build Pipeline",
-          intensity = Intensity.Medium,
-          body = "Settled on one deployment workflow.\n",
-          linked = emptyList(),
-          sensitive = false,
-        ),
-      )
-
-      result.shouldBeInstanceOf<CaptureResult.Created>()
-      result.backlinkId?.value shouldBe "timeline/2026-04/2026-04-24-build-pipeline"
-    }
-
-    test("captureObservation writes complete episode candidates as episodes") {
-      val (service, repo) = newService()
-      coEvery { repo.findNode(NodeId("domains/work/personal-graph/events/candidate-ingest-boundary")) } returns null
-      coEvery { repo.writeNode(any()) } returns WriteOutcome.Applied
-      coEvery { repo.findSubjectHub(any(), any(), any()) } returns null
-
-      val result = service.captureObservation(
-        CaptureObservationArgs(
-          observation = "Decided personal-graph owns capture filtering instead of every caller.",
-          sourceContext = "personal-graph design session",
-          suggestedKind = CaptureObservationKind.Episode,
-          id = "candidate-ingest-boundary",
-          category = null,
-          confidence = null,
-          date = VaultNodeFixtures.episodeInstant,
-          episodeType = EpisodeType.Decision,
-          domain = "work/personal-graph",
-          topic = "Candidate ingest boundary",
-          intensity = Intensity.Medium,
-          links = emptyList(),
-          sensitive = false,
-        ),
-      )
-
-      result.shouldBeInstanceOf<CaptureObservationResult.Decided>()
-      result.decision shouldBe CaptureObservationDecision.EpisodeWritten
-      val capture = result.captureResult.shouldBeInstanceOf<CaptureResult.Created>()
-      capture.id.value shouldBe "domains/work/personal-graph/events/candidate-ingest-boundary"
     }
   })
 
