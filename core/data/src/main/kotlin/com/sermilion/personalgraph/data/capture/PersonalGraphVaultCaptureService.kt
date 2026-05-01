@@ -48,10 +48,15 @@ class PersonalGraphVaultCaptureService(
       reason = "routine_or_transient_observation",
     )
     args.shouldRouteToSensitiveStaging() -> captureSensitiveObservation(args, args.observation.trim())
+    args.confidence == Confidence.Low -> captureStagedObservation(
+      args,
+      args.observation.trim(),
+      "low_confidence_candidate",
+    )
+    shouldCaptureEpisode(args) -> captureEpisodeObservation(args, args.observation.trim())
     shouldStage(args, args.observation.trim()) -> {
       captureStagedObservation(args, args.observation.trim(), "insufficient_durable_structure")
     }
-    shouldCaptureEpisode(args) -> captureEpisodeObservation(args, args.observation.trim())
     else -> captureStateObservation(args, args.observation.trim())
   }
 
@@ -123,7 +128,7 @@ class PersonalGraphVaultCaptureService(
   }
 
   override suspend fun writeToStaging(args: WriteToStagingArgs): CaptureResult {
-    val targetId = "${VaultLayout.BRANCH_STAGING_OBSERVATIONS}/${slugify(args.id)}"
+    val targetId = "${VaultLayout.BRANCH_STAGING_OBSERVATIONS}/${GeneratedSlugPolicy.callerLeaf(args.id)}"
     val nodeId = parseNodeId(targetId)
       ?: return CaptureResult.InvalidInput(FIELD_ID, "computed target id is invalid: $targetId")
     val now = clock.now()
@@ -307,7 +312,13 @@ class PersonalGraphVaultCaptureService(
     val date = episode.date.toLocalDateTime(TimeZone.UTC)
     val yearMonth = "%04d-%02d".format(date.year, date.monthNumber)
     val datePrefix = "%04d-%02d-%02d".format(date.year, date.monthNumber, date.dayOfMonth)
-    val backlinkPath = "${VaultLayout.timeline(yearMonth)}/$datePrefix-${slugify(episode.topic)}"
+    val backlinkPath = buildString {
+      append(VaultLayout.timeline(yearMonth))
+      append('/')
+      append(datePrefix)
+      append('-')
+      append(GeneratedSlugPolicy.generatedLeaf(episode.topic))
+    }
     val backlinkId = parseNodeId(backlinkPath)
       ?: return null to BacklinkStatus.Failed
     val timelineLinks = listOfNotNull(episode.id, subjectHubId)
@@ -354,8 +365,11 @@ class PersonalGraphVaultCaptureService(
     }
     return repository.findSubjectHub(
       domain = episode.domain,
-      subjectKey = episode.topic,
-      aliases = listOf(episode.id.value.substringAfterLast('/')),
+      subjectKey = GeneratedSlugPolicy.generatedLeaf(episode.topic),
+      aliases = listOf(
+        episode.topic,
+        episode.id.value.substringAfterLast('/'),
+      ),
     )
   }
 }
@@ -455,28 +469,23 @@ private fun buildStateTargetId(id: String, category: StateCategory): String {
     StateCategory.Knowledge -> VaultLayout.BRANCH_STATE_KNOWLEDGE
     StateCategory.Fact -> VaultLayout.BRANCH_STATE_KNOWLEDGE
   }
-  return "$branch/${slugify(id)}"
+  return "$branch/${GeneratedSlugPolicy.callerLeaf(id)}"
 }
 
 private fun buildEpisodeTargetId(domain: String, id: String): String {
   if (id.startsWith("${VaultLayout.domainEvents(domain)}/")) return id
-  return "${VaultLayout.domainEvents(domain)}/${slugify(id.substringAfterLast('/'))}"
+  return "${VaultLayout.domainEvents(domain)}/${GeneratedSlugPolicy.callerLeaf(id)}"
 }
 
 private fun buildSensitiveTargetId(id: String): String {
   val tail = id.substringAfterLast('/')
-  return "${VaultLayout.BRANCH_STAGING_SENSITIVE}/${slugify(tail)}"
+  return "${VaultLayout.BRANCH_STAGING_SENSITIVE}/${GeneratedSlugPolicy.callerLeaf(tail)}"
 }
-
-private fun slugify(value: String): String = value.lowercase()
-  .replace(SLUG_NORMALIZE_REGEX, "-")
-  .trim('-')
-  .ifEmpty { SLUG_FALLBACK }
 
 private fun parseNodeId(value: String): NodeId? = runCatching { NodeId(value) }.getOrNull()
 
 private fun newSubjectHub(episode: EpisodeNode): SubjectNode {
-  val canonicalSubject = slugify(episode.topic)
+  val canonicalSubject = GeneratedSlugPolicy.generatedLeaf(episode.topic)
   val targetId = NodeId(VaultLayout.subjectHub(episode.domain, canonicalSubject))
   val evidenceBody = subjectEvidenceEntry(episode)
   return SubjectNode(
@@ -484,11 +493,11 @@ private fun newSubjectHub(episode: EpisodeNode): SubjectNode {
     createdAt = episode.date,
     updatedAt = episode.date,
     body = "## Summary\nCanonical subject hub for ${episode.topic.trim()}.\n\n## Evidence\n$evidenceBody",
-    links = mergeNodeIds(episode.links, listOf(episode.id)),
+    links = mergeNodeIdsExcluding(targetId, episode.links, listOf(episode.id)),
     domain = episode.domain,
     subject = canonicalSubject,
     aliases = listOfNotNull(
-      episode.topic.trim().takeUnless { slugify(it) == canonicalSubject || it.isBlank() },
+      episode.topic.trim().takeUnless { GeneratedSlugPolicy.generatedLeaf(it) == canonicalSubject || it.isBlank() },
     ),
     evidenceCount = 1,
     sourceIds = listOf(episode.id),
@@ -499,20 +508,20 @@ private fun SubjectNode.appendEpisodeEvidence(episode: EpisodeNode): SubjectNode
   if (sourceIds.any { it.value == episode.id.value } || body.contains("[[${episode.id.value}]]")) {
     return copy(
       updatedAt = episode.date,
-      links = mergeNodeIds(links, episode.links + episode.id),
+      links = mergeNodeIdsExcluding(id, links, episode.links + episode.id),
       sourceIds = mergeNodeIds(sourceIds, listOf(episode.id)),
     )
   }
   val appendedBody = appendEvidenceEntry(body, subjectEvidenceEntry(episode))
-  val canonicalTopic = slugify(episode.topic)
+  val canonicalTopic = GeneratedSlugPolicy.generatedLeaf(episode.topic)
   val nextAliases = (aliases + episode.topic.trim())
     .map(String::trim)
-    .filter { it.isNotEmpty() && slugify(it) != subject }
+    .filter { it.isNotEmpty() && GeneratedSlugPolicy.generatedLeaf(it) != subject }
     .distinct()
   return copy(
     updatedAt = episode.date,
     body = appendedBody,
-    links = mergeNodeIds(links, episode.links + episode.id),
+    links = mergeNodeIdsExcluding(id, links, episode.links + episode.id),
     aliases = nextAliases,
     evidenceCount = evidenceCount + 1,
     sourceIds = mergeNodeIds(sourceIds, listOf(episode.id)),
@@ -542,17 +551,22 @@ private fun firstContentLine(body: String): String? = body.lineSequence()
   .firstOrNull { it.isNotEmpty() }
   ?.take(MAX_SUBJECT_EVIDENCE_SUMMARY_LENGTH)
 
-private fun mergeNodeIds(left: List<NodeId>, right: List<NodeId>): List<NodeId> {
+private fun mergeNodeIds(left: List<NodeId>, right: List<NodeId>): List<NodeId> = mergeNodeIdsExcluding(
+  excluded = null,
+  left = left,
+  right = right,
+)
+
+private fun mergeNodeIdsExcluding(excluded: NodeId?, left: List<NodeId>, right: List<NodeId>): List<NodeId> {
   val seen = mutableSetOf<String>()
   val result = mutableListOf<NodeId>()
   for (id in left + right) {
+    if (id.value == excluded?.value) continue
     if (seen.add(id.value)) result.add(id)
   }
   return result
 }
 
-private val SLUG_NORMALIZE_REGEX: Regex = Regex("[^a-z0-9]+")
-private const val SLUG_FALLBACK: String = "untitled"
 private const val MAX_SUBJECT_EVIDENCE_SUMMARY_LENGTH: Int = 140
 private const val REASON_PEOPLE_BLOCKED: String = "people/ is read-blocked by default"
 private const val FIELD_OBSERVATION: String = "observation"

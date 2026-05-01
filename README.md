@@ -25,6 +25,7 @@ Stage 1 shipped. The CLI scaffolds an Obsidian-compatible vault on demand (`pers
     Braian.md                        # root orienting note; always loaded first
     state/                           # durable facts, preferences, roles
     domains/                         # work/capmo, personal, creative, ...
+      <domain>/index.md              # concise navigation note for the domain
       <domain>/events/               # dated work/life records in the canonical domain/topic
       <domain>/subjects/             # reusable subject hubs with appended dated evidence
     patterns/                        # extracted cross-cutting pattern hubs
@@ -110,7 +111,7 @@ Run the local MCP server over stdio:
 
 Register that launcher with your AI tool's MCP configuration. The server exposes the Stage 1 capture/read tools plus Stage 3 retrieval:
 
-- `write_state`, `write_episode`, `write_to_staging` — Tier 1 capture. Existing target paths are archived under `outdated/resolved/` before replacement and returned as `archived_paths`; `write_episode` also reuses or appends to a canonical subject hub and writes only a timeline index stub.
+- `write_state`, `write_episode`, `write_to_staging` — Tier 1 capture. Existing target paths are archived under `outdated/resolved/` before replacement and returned as `archived_paths`; generated/topic-derived ids are slug-bounded, while caller-provided bare leaves are slugified without word bounding; `write_episode` also reuses or appends to a canonical subject hub and writes only a timeline index stub.
 - `flag_sensitive`, `list_pending_sensitive` — sensitivity routing for batch disposition.
 - `read_node`, `list_branch` — explicit full-body follow-up reads. `people/` is read-blocked by default; reads outside the vault root or outside whitelisted branches are rejected.
 - `session_start` — audited map-first retrieval of bounded `Braian.md` context, classification metadata, `available_map`, `suggested_reads`, skips, and audit reasons. `retrieval_mode=full-loading` remains the explicit opt-in compatibility path for loaded node bodies.

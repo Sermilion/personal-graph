@@ -1,5 +1,14 @@
 # core/data — history
 
+## [2026-04-30] vault-navigation-note-generation-rules (GP-6)
+Areas: core/domain (layout), core/data (scaffold/capture/tests), mcp-server schemas, README, external Obsidian vault
+- Vault scaffolding now creates idempotent `domains/**/index.md` navigation notes from a central active-domain list while preserving user-authored index files.
+- Capture ID construction now uses a central slug policy: generated observation IDs, subject hubs, and timeline backlink leaves stay word-bounded; bare caller leaves are slugified without word bounding; explicit canonical state/episode paths remain caller-owned.
+- Episode subject hubs filter their own hub id out of link metadata on create/append, and timeline backlink bodies remain link-only stubs to avoid duplicated event prose.
+- Candidate capture now stages event-like observations (`decision`/`fix`/`regression`/`chose`/`implemented`) unless they have durable reusable state signals or complete episode shape.
+Feature flag: N/A
+Acceptance criteria: 7/7 implemented
+
 ## [2026-04-30] capture-replacement-archive (PG-5 follow-up)
 Areas: core/domain (layout/policy/capture result), core/data (capture archive/scaffold/tests), mcp-server (write result JSON/schema docs), README
 - Capture writes now preserve previous versions when replacing the same graph path by writing an archive copy under `outdated/resolved/<original-path>/<timestamp-hash>` before overwriting the active node

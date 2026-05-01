@@ -31,18 +31,28 @@ object VaultLayout {
 
   const val BRAIAN_FILENAME: String = "Braian.md"
 
+  private val SCAFFOLD_DOMAIN_KEYS: List<String> = listOf(
+    "work/capmo",
+    "work/reddit",
+    "work/skill-bill",
+    "work/readian",
+    "work/context-app",
+    "work/personal-graph",
+    "personal",
+    "personal-graph",
+    "creative",
+  )
+
   val SCAFFOLD_DIRECTORIES: List<String> = listOf(
     BRANCH_STATE_PREFERENCES,
     BRANCH_STATE_ROLES,
     BRANCH_STATE_KNOWLEDGE,
-    domainEvents("work/capmo"),
-    domainSubjects("work/capmo"),
-    domainEvents("work/reddit"),
-    domainSubjects("work/reddit"),
-    domainEvents("personal"),
-    domainSubjects("personal"),
-    domainEvents("creative"),
-    domainSubjects("creative"),
+  ) + SCAFFOLD_DOMAIN_KEYS.flatMap { domainKey ->
+    listOf(
+      domainEvents(domainKey),
+      domainSubjects(domainKey),
+    )
+  } + listOf(
     BRANCH_PATTERNS,
     BRANCH_EMOTIONAL_STATES,
     BRANCH_TIMELINE,
@@ -51,6 +61,11 @@ object VaultLayout {
     BRANCH_OUTDATED_RESOLVED,
     BRANCH_PEOPLE,
   )
+
+  val SCAFFOLD_DOMAIN_INDEXES: List<String> = listOf(
+    "$BRANCH_DOMAINS/index",
+    domainIndex("work"),
+  ) + SCAFFOLD_DOMAIN_KEYS.map(::domainIndex)
 
   fun stateBranch(category: StateCategoryDirectory): String = when (category) {
     StateCategoryDirectory.Preferences -> BRANCH_STATE_PREFERENCES
@@ -64,6 +79,8 @@ object VaultLayout {
   }
 
   fun domain(domainKey: String): String = "$BRANCH_DOMAINS/$domainKey"
+
+  fun domainIndex(domainKey: String): String = "${domain(domainKey)}/index"
 
   fun domainEvents(domainKey: String): String = "${domain(domainKey)}/$SUB_DOMAIN_EVENTS"
 

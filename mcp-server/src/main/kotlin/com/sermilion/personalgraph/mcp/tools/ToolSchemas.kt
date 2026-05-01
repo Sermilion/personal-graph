@@ -18,7 +18,8 @@ object ToolSchemas {
     "Write or update a state node (Tier 1 capture for durable facts). " +
       "If the target already exists, the prior version is archived under outdated/resolved/."
   const val DESC_CAPTURE_OBSERVATION: String =
-    "Submit a candidate observation. Personal-graph decides whether to reject, stage, save, or update it."
+    "Submit a candidate observation. Personal-graph decides whether to reject, stage, save, or update it; " +
+      "event-like observations without durable reusable structure are staged unless they are complete episodes."
   const val DESC_WRITE_EPISODE: String =
     "Write or update an episode node, append it to a canonical subject hub, and create a timeline backlink stub. " +
       "If the target already exists, the prior version is archived under outdated/resolved/."
@@ -38,9 +39,12 @@ object ToolSchemas {
   const val DESC_FIELD_STATE_ID: String =
     "Node id. Accepts canonical plural prefix (e.g. state/roles/<leaf>), or a bare leaf which is " +
       "routed via `category`. Singular-prefix forms (state/role/, state/preference/, state/fact/) " +
-      "are rejected — use the canonical plural form named in `expected`."
+      "are rejected — use the canonical plural form named in `expected`. " +
+      "Bare leaves are slugified without word bounding."
   const val DESC_FIELD_NODE_ID: String =
-    "Node id; canonical form `<branch>/<leaf>` (e.g. domains/creative/events/<leaf> for episodes)."
+    "Node id; canonical form `<branch>/<leaf>` (e.g. domains/creative/events/<leaf> for episodes). " +
+      "Generated/topic-derived ids are slug-bounded; bare leaves are slugified without word bounding; " +
+      "explicit canonical paths are preserved."
   const val DESC_FIELD_DATE: String =
     "ISO-8601 instant in UTC, e.g. 2026-04-25T00:00:00Z. Date-only values are rejected."
   const val DESC_FIELD_TARGET_PATH: String =

@@ -517,6 +517,7 @@ class VaultMcpToolsTest :
       val description = (idField["description"] as JsonPrimitive).content
       description shouldContain "state/roles"
       description.lowercase() shouldContain "singular"
+      description shouldContain "slugified without word bounding"
     }
 
     test("write_state schema describes links as silently dropping invalid entries") {

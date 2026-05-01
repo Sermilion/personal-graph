@@ -27,6 +27,13 @@ class PersonalGraphVaultScaffolder(
       for (relative in VaultLayout.SCAFFOLD_DIRECTORIES) {
         Files.createDirectories(vaultRoot.resolve(relative))
       }
+      for (relative in VaultLayout.SCAFFOLD_DOMAIN_INDEXES) {
+        val indexFile = vaultRoot.resolve("$relative.md")
+        if (Files.notExists(indexFile)) {
+          Files.createDirectories(indexFile.parent)
+          Files.writeString(indexFile, defaultDomainIndex(relative))
+        }
+      }
       val orientationFile = vaultRoot.resolve(VaultLayout.BRAIAN_FILENAME)
       if (Files.notExists(orientationFile)) {
         Files.writeString(orientationFile, DEFAULT_BRAIAN_ORIENTATION)
@@ -44,6 +51,27 @@ class PersonalGraphVaultScaffolder(
   private fun Throwable.reasonString(): String = "${this::class.simpleName}: ${this.message.orEmpty()}"
 
   companion object {
+
+    private fun defaultDomainIndex(relative: String): String {
+      val domain = relative.removePrefix("${VaultLayout.BRANCH_DOMAINS}/").removeSuffix("/index")
+        .takeUnless { it == "index" }
+        .orEmpty()
+      return buildString {
+        appendLine("# ${domainTitle(domain)}")
+        appendLine()
+        appendLine("Use this index for orientation and navigation only. Keep durable event detail in `events/`")
+        appendLine("and reusable topic summaries in `subjects/`.")
+      }
+    }
+
+    private fun domainTitle(domain: String): String = if (domain.isBlank()) {
+      "Domains"
+    } else {
+      domain.split('/')
+        .joinToString(" / ") { segment ->
+          segment.split('-').joinToString(" ") { word -> word.replaceFirstChar(Char::uppercaseChar) }
+        }
+    }
 
     private val DEFAULT_BRAIAN_ORIENTATION: String = buildString {
       appendLine("# Braian")
