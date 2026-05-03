@@ -35,6 +35,8 @@ import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalService
 import com.sermilion.personalgraph.domain.retrieval.SkippedBranch
 import com.sermilion.personalgraph.domain.retrieval.SuggestedRead
 import com.sermilion.personalgraph.domain.retrieval.SuggestedReadPriority
+import com.sermilion.personalgraph.domain.search.BranchListingService
+import com.sermilion.personalgraph.domain.search.NodeSearchService
 import com.sermilion.personalgraph.testing.VaultNodeFixtures
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
@@ -59,8 +61,18 @@ class VaultMcpToolsTest :
       val repo = mockk<VaultRepository>()
       val capture = mockk<VaultCaptureService>()
       val retrieval = mockk<SessionStartRetrievalService>()
-      val tools = VaultMcpTools(repo, VaultPathResolver(), tempDir, capture, retrieval)
-      return VaultMcpToolsTestContext(tools, repo, capture, retrieval, tempDir)
+      val search = mockk<NodeSearchService>()
+      val branchListing = mockk<BranchListingService>()
+      val tools = VaultMcpTools(
+        repo,
+        VaultPathResolver(),
+        tempDir,
+        capture,
+        retrieval,
+        search,
+        branchListing,
+      )
+      return VaultMcpToolsTestContext(tools, repo, capture, retrieval, search, branchListing, tempDir)
     }
 
     test("write_state happy-path forwards typed args to capture service") {
@@ -569,10 +581,31 @@ class VaultMcpToolsTest :
     }
   })
 
-private data class VaultMcpToolsTestContext(
+internal data class VaultMcpToolsTestContext(
   val tools: VaultMcpTools,
   val repo: VaultRepository,
   val capture: VaultCaptureService,
   val retrieval: SessionStartRetrievalService,
+  val search: NodeSearchService,
+  val branchListing: BranchListingService,
   val vaultRoot: Path,
 )
+
+internal fun newVaultMcpToolsTestContext(): VaultMcpToolsTestContext {
+  val tempDir = Files.createTempDirectory("mcp-tools-")
+  val repo = mockk<VaultRepository>()
+  val capture = mockk<VaultCaptureService>()
+  val retrieval = mockk<SessionStartRetrievalService>()
+  val search = mockk<NodeSearchService>()
+  val branchListing = mockk<BranchListingService>()
+  val tools = VaultMcpTools(
+    repo,
+    VaultPathResolver(),
+    tempDir,
+    capture,
+    retrieval,
+    search,
+    branchListing,
+  )
+  return VaultMcpToolsTestContext(tools, repo, capture, retrieval, search, branchListing, tempDir)
+}

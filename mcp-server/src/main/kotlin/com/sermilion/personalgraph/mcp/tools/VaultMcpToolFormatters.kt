@@ -11,12 +11,10 @@ import com.sermilion.personalgraph.domain.model.PatternNode
 import com.sermilion.personalgraph.domain.model.StateNode
 import com.sermilion.personalgraph.domain.model.SubjectNode
 import com.sermilion.personalgraph.domain.model.VaultNode
-import com.sermilion.personalgraph.domain.retrieval.CompactMapEntry
-import com.sermilion.personalgraph.domain.retrieval.LoadedFullBodyContext
-import com.sermilion.personalgraph.domain.retrieval.RetrievalAuditEntry
-import com.sermilion.personalgraph.domain.retrieval.RetrievalClassification
 import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalReport
-import com.sermilion.personalgraph.domain.retrieval.SkippedBranch
+import com.sermilion.personalgraph.domain.search.SearchHit
+import com.sermilion.personalgraph.domain.search.SearchOutcome
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.JsonPrimitive
@@ -39,6 +37,14 @@ internal fun invalidInputJson(field: String, reason: String): JsonObject = statu
   ),
 )
 
+internal fun permissionDeniedBranch(branch: String, reason: String): JsonObject = statusJson(
+  ToolSchemas.STATUS_PERMISSION_DENIED,
+  mapOf(
+    ToolSchemas.KEY_BRANCH to branch,
+    ToolSchemas.KEY_REASON to reason,
+  ),
+)
+
 internal fun nodeJson(node: VaultNode): JsonObject = buildJsonObject {
   put(ToolSchemas.KEY_ID, JsonPrimitive(node.id.value))
   put(ToolSchemas.KEY_BODY, JsonPrimitive(node.body))
@@ -57,7 +63,7 @@ internal fun nodeJson(node: VaultNode): JsonObject = buildJsonObject {
   if (node is StateNode) {
     node.scope?.let { put(ToolSchemas.KEY_SCOPE, JsonPrimitive(it)) }
     if (node.scopes.isNotEmpty()) {
-      put(ToolSchemas.KEY_SCOPES, stringArrayJson(node.scopes))
+      put(ToolSchemas.KEY_SCOPES, stringArrayJsonOf(node.scopes))
     }
   }
 }
@@ -74,9 +80,9 @@ internal fun SessionStartRetrievalReport.toJson(): JsonObject = buildJsonObject 
       },
     )
   }
-  put(ToolSchemas.KEY_CLASSIFICATION, classificationJson(classification))
-  put(ToolSchemas.KEY_LOADED_CONTEXT, loadedFullBodyContextJson(loadedContext))
-  put(ToolSchemas.KEY_AVAILABLE_MAP, compactMapEntriesJson(availableMap))
+  put(ToolSchemas.KEY_CLASSIFICATION, classificationJsonOf(classification))
+  put(ToolSchemas.KEY_LOADED_CONTEXT, loadedFullBodyContextJsonOf(loadedContext))
+  put(ToolSchemas.KEY_AVAILABLE_MAP, compactMapEntriesJsonOf(availableMap))
   put(
     ToolSchemas.KEY_SUGGESTED_READS,
     buildJsonArray {
@@ -91,81 +97,99 @@ internal fun SessionStartRetrievalReport.toJson(): JsonObject = buildJsonObject 
       }
     },
   )
-  put(ToolSchemas.KEY_SKIPPED_BRANCHES, skippedBranchesJson(skippedBranches))
-  put(ToolSchemas.KEY_AUDIT, auditJson(audit))
-  put(ToolSchemas.KEY_AUDIT_ENTRIES, auditJson(auditEntries))
+  put(ToolSchemas.KEY_SKIPPED_BRANCHES, skippedBranchesJsonOf(skippedBranches))
+  put(ToolSchemas.KEY_AUDIT, auditJsonOf(audit))
+  put(ToolSchemas.KEY_AUDIT_ENTRIES, auditJsonOf(auditEntries))
 }
 
-private fun classificationJson(classification: RetrievalClassification): JsonObject = buildJsonObject {
-  put(ToolSchemas.KEY_DOMAIN, JsonPrimitive(classification.domain.value))
-  put(ToolSchemas.KEY_MATCHED_TERMS, stringArrayJson(classification.matchedTerms))
-  put(ToolSchemas.KEY_EMOTIONAL_CONTEXT, JsonPrimitive(classification.emotionalContextRequested))
-  put(ToolSchemas.KEY_EMOTIONAL_TERMS, stringArrayJson(classification.emotionalMatchedTerms))
+internal fun searchNodesResultJson(outcome: SearchOutcome): JsonObject = buildJsonObject {
+  put(ToolSchemas.KEY_STATUS, JsonPrimitive(ToolSchemas.STATUS_OK))
+  put(
+    ToolSchemas.KEY_NODES,
+    buildJsonArray { for (hit in outcome.hits) add(searchHitJson(hit)) },
+  )
+  put(ToolSchemas.KEY_SEARCH_PLAN, searchPlanJson(outcome))
+  put(ToolSchemas.KEY_ESTIMATED_TOKENS, JsonPrimitive(outcome.estimatedTokens))
 }
 
-private fun loadedFullBodyContextJson(context: List<LoadedFullBodyContext>) = buildJsonArray {
-  for (entry in context) {
-    add(
-      buildJsonObject {
-        put(ToolSchemas.KEY_ID, JsonPrimitive(entry.id))
-        put(ToolSchemas.KEY_BODY, JsonPrimitive(entry.body))
-        put(ToolSchemas.KEY_SOURCE, JsonPrimitive(entry.source.value))
-        put(ToolSchemas.KEY_LOAD_ORDER, JsonPrimitive(entry.loadOrder))
-        put(ToolSchemas.KEY_REASON, JsonPrimitive(entry.reason))
-      },
-    )
+private fun searchHitJson(hit: SearchHit): JsonObject = buildJsonObject {
+  put(ToolSchemas.KEY_ID, JsonPrimitive(hit.id.value))
+  put(ToolSchemas.KEY_TYPE, JsonPrimitive(hit.type))
+  hit.domain?.let { put(ToolSchemas.KEY_DOMAIN, JsonPrimitive(it)) }
+  hit.subject?.let { put(ToolSchemas.KEY_SUBJECT, JsonPrimitive(it)) }
+  put(ToolSchemas.KEY_MATCH_FIELDS, stringArrayJsonOf(hit.matchFields))
+  put(ToolSchemas.KEY_SNIPPET, JsonPrimitive(hit.snippet))
+  put(ToolSchemas.KEY_SCORE, JsonPrimitive(hit.score))
+  if (hit.links.isNotEmpty()) {
+    put(ToolSchemas.KEY_LINKS, stringArrayJsonOf(hit.links.map { it.value }))
+  }
+  hit.body?.let { put(ToolSchemas.KEY_BODY, JsonPrimitive(it)) }
+}
+
+private fun searchPlanJson(outcome: SearchOutcome): JsonObject = buildJsonObject {
+  put(ToolSchemas.KEY_METADATA_INDEX_USED, JsonPrimitive(outcome.plan.metadataIndexUsed))
+  put(ToolSchemas.KEY_BODY_FALLBACK_USED, JsonPrimitive(outcome.plan.bodyFallbackUsed))
+  put(ToolSchemas.KEY_BRANCHES_SEARCHED, stringArrayJsonOf(outcome.plan.branchesSearched))
+}
+
+internal data class CompactListEntry(
+  val id: String,
+  val type: String,
+  val domain: String?,
+  val subject: String?,
+  val snippet: String,
+  val matchFields: List<String>,
+  val score: Int,
+  val links: List<String>,
+  val includeLinks: Boolean,
+)
+
+internal fun listBranchCompactEntryJson(entry: CompactListEntry): JsonObject = buildJsonObject {
+  put(ToolSchemas.KEY_ID, JsonPrimitive(entry.id))
+  put(ToolSchemas.KEY_TYPE, JsonPrimitive(entry.type))
+  entry.domain?.let { put(ToolSchemas.KEY_DOMAIN, JsonPrimitive(it)) }
+  entry.subject?.let { put(ToolSchemas.KEY_SUBJECT, JsonPrimitive(it)) }
+  put(ToolSchemas.KEY_SNIPPET, JsonPrimitive(entry.snippet))
+  put(ToolSchemas.KEY_MATCH_FIELDS, stringArrayJsonOf(entry.matchFields))
+  put(ToolSchemas.KEY_SCORE, JsonPrimitive(entry.score))
+  if (entry.includeLinks) {
+    put(ToolSchemas.KEY_LINKS, stringArrayJsonOf(entry.links))
   }
 }
 
-private fun compactMapEntriesJson(entries: List<CompactMapEntry>) = buildJsonArray {
-  for (entry in entries) {
-    add(
-      buildJsonObject {
-        put(ToolSchemas.KEY_ID, JsonPrimitive(entry.id))
-        put(ToolSchemas.KEY_KIND, JsonPrimitive(entry.kind.value))
-        put(ToolSchemas.KEY_REASON, JsonPrimitive(entry.reason))
-        entry.nodeCount?.let { put(ToolSchemas.KEY_NODE_COUNT, JsonPrimitive(it)) }
-        entry.type?.let { put(ToolSchemas.KEY_TYPE, JsonPrimitive(it)) }
-        entry.category?.let { put(ToolSchemas.KEY_CATEGORY, JsonPrimitive(it)) }
-        entry.domain?.let { put(ToolSchemas.KEY_DOMAIN, JsonPrimitive(it)) }
-        entry.scope?.let { put(ToolSchemas.KEY_SCOPE, JsonPrimitive(it)) }
-        if (entry.scopes.isNotEmpty()) put(ToolSchemas.KEY_SCOPES, stringArrayJson(entry.scopes))
-        entry.updated?.let { put(ToolSchemas.KEY_UPDATED, JsonPrimitive(it)) }
-        entry.date?.let { put(ToolSchemas.KEY_DATE, JsonPrimitive(it)) }
-        entry.summary?.let { put(ToolSchemas.KEY_SUMMARY, JsonPrimitive(it)) }
-        if (entry.aliases.isNotEmpty()) put(ToolSchemas.KEY_ALIASES, stringArrayJson(entry.aliases))
-        entry.linkCount?.let { put(ToolSchemas.KEY_LINK_COUNT, JsonPrimitive(it)) }
-        if (entry.links.isNotEmpty()) put(ToolSchemas.KEY_LINKS, stringArrayJson(entry.links))
-      },
-    )
-  }
+internal data class ListBranchTokenAccounting(
+  val metadataTokens: Int,
+  val bodyTokens: Int,
+  val prunedBodyTokens: Int,
+)
+
+internal fun compactListResultJson(
+  entries: List<CompactListEntry>,
+  accounting: ListBranchTokenAccounting,
+): JsonObject = buildJsonObject {
+  put(ToolSchemas.KEY_STATUS, JsonPrimitive(ToolSchemas.STATUS_OK))
+  put(ToolSchemas.KEY_MODE, JsonPrimitive(ToolSchemas.LIST_MODE_INDEX))
+  put(
+    ToolSchemas.KEY_ENTRIES,
+    buildJsonArray { for (entry in entries) add(listBranchCompactEntryJson(entry)) },
+  )
+  put(ToolSchemas.KEY_ESTIMATED_TOKENS, tokenAccountingJson(accounting))
 }
 
-private fun skippedBranchesJson(branches: List<SkippedBranch>) = buildJsonArray {
-  for (branch in branches) {
-    add(
-      buildJsonObject {
-        put(ToolSchemas.KEY_BRANCH, JsonPrimitive(branch.branch))
-        put(ToolSchemas.KEY_REASON, JsonPrimitive(branch.reason))
-      },
-    )
-  }
+internal fun fullListResultJson(
+  nodesArray: JsonArray,
+  accounting: ListBranchTokenAccounting,
+): JsonObject = buildJsonObject {
+  put(ToolSchemas.KEY_STATUS, JsonPrimitive(ToolSchemas.STATUS_OK))
+  put(ToolSchemas.KEY_NODES, nodesArray)
+  put(ToolSchemas.KEY_MODE, JsonPrimitive(ToolSchemas.LIST_MODE_FULL))
+  put(ToolSchemas.KEY_ESTIMATED_TOKENS, tokenAccountingJson(accounting))
 }
 
-private fun auditJson(audit: List<RetrievalAuditEntry>) = buildJsonArray {
-  for (entry in audit) {
-    add(
-      buildJsonObject {
-        put(ToolSchemas.KEY_ACTION, JsonPrimitive(entry.action))
-        put(ToolSchemas.KEY_SUBJECT, JsonPrimitive(entry.subject))
-        put(ToolSchemas.KEY_REASON, JsonPrimitive(entry.reason))
-      },
-    )
-  }
-}
-
-private fun stringArrayJson(values: List<String>) = buildJsonArray {
-  for (value in values) add(JsonPrimitive(value))
+private fun tokenAccountingJson(accounting: ListBranchTokenAccounting): JsonObject = buildJsonObject {
+  put(ToolSchemas.KEY_METADATA_TOKENS, JsonPrimitive(accounting.metadataTokens))
+  put(ToolSchemas.KEY_BODY_TOKENS, JsonPrimitive(accounting.bodyTokens))
+  put(ToolSchemas.KEY_PRUNED_BODY_TOKENS, JsonPrimitive(accounting.prunedBodyTokens))
 }
 
 internal fun excerpt(body: String): String {
@@ -249,7 +273,7 @@ private fun createdToJson(result: CaptureResult.Created): JsonObject = buildJson
   put(ToolSchemas.KEY_BACKLINK_STATUS, JsonPrimitive(backlinkStatusValue))
   result.subjectHubId?.let { put(ToolSchemas.KEY_SUBJECT_HUB_PATH, JsonPrimitive(it.value)) }
   if (result.archivedIds.isNotEmpty()) {
-    put(ToolSchemas.KEY_ARCHIVED_PATHS, stringArrayJson(result.archivedIds.map { it.value }))
+    put(ToolSchemas.KEY_ARCHIVED_PATHS, stringArrayJsonOf(result.archivedIds.map { it.value }))
   }
   val subjectHubStatusValue = when (result.subjectHubStatus) {
     SubjectHubStatus.Created -> ToolSchemas.SUBJECT_HUB_STATUS_CREATED

@@ -11,13 +11,8 @@ import com.sermilion.personalgraph.domain.model.Confidence
 import com.sermilion.personalgraph.domain.model.EpisodeType
 import com.sermilion.personalgraph.domain.model.Intensity
 import com.sermilion.personalgraph.domain.model.StateCategory
-import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalMode
-import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalRequest
 import kotlinx.datetime.Instant
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.contentOrNull
 
 internal const val PERMISSION_DENIED_PEOPLE: String = "people/ is read-blocked by default"
 internal const val PERMISSION_DENIED_OUTSIDE: String = "path is outside the vault root"
@@ -248,72 +243,80 @@ private fun resolveFlagSensitiveSuccess(args: JsonObject, targetPath: String): P
   return Parsed.Success(FlagSensitiveArgs(targetPath = targetPath, payloadKind = payloadKind))
 }
 
-internal fun parseSessionStartRetrievalRequest(args: JsonObject): Parsed<SessionStartRetrievalRequest> {
-  val message = args.stringOrNull(ToolSchemas.KEY_MESSAGE)
-    ?: return Parsed.Failure(invalidInputJson(ToolSchemas.KEY_MESSAGE, REASON_MISSING))
-  return when (val mode = parseSessionStartRetrievalModeArgument(args)) {
-    is Parsed.Failure -> Parsed.Failure(mode.json)
-    is Parsed.Success -> Parsed.Success(
-      SessionStartRetrievalRequest(
-        firstSubstantiveMessage = message,
-        retrievalMode = mode.value,
-      ),
-    )
-  }
+internal data class ListBranchArgs(
+  val branch: String,
+  val mode: ListBranchMode,
+  val filter: String?,
+  val limit: Int?,
+  val includeLinks: Boolean,
+  val includeBody: Boolean,
+  val legacyShape: Boolean,
+)
+
+internal enum class ListBranchMode {
+  Full,
+  Index,
 }
 
-private fun JsonObject.optionalStringArgument(key: String): Parsed<String?> = when (val element = this[key]) {
-  null -> Parsed.Success(null)
-  is JsonPrimitive -> {
-    val content = element.contentOrNull
-    if (element.isString && content != null) {
-      Parsed.Success(content)
-    } else {
-      Parsed.Failure(invalidInputJson(key, REASON_INVALID))
-    }
-  }
-  else -> Parsed.Failure(invalidInputJson(key, REASON_INVALID))
+internal fun parseListBranchArgs(args: JsonObject): Parsed<ListBranchArgs> {
+  val branch = args.stringOrNull(ToolSchemas.KEY_BRANCH)
+    ?: return Parsed.Failure(invalidInputJson(ToolSchemas.KEY_BRANCH, REASON_MISSING))
+  return resolveListBranchArgs(args, branch)
 }
 
-private fun JsonObject.stringArrayArgument(key: String): Parsed<List<String>> {
-  var error: JsonObject? = null
-  val values = when (val element = this[key]) {
-    null -> emptyList()
-    is JsonArray -> buildList {
-      for (entry in element) {
-        val primitive = entry as? JsonPrimitive
-        val content = primitive?.contentOrNull
-        if (primitive?.isString == true && content != null) {
-          add(content)
-        } else {
-          error = invalidInputJson(key, REASON_INVALID)
-        }
-      }
-    }
-    else -> {
-      error = invalidInputJson(key, REASON_INVALID)
-      emptyList()
-    }
-  }
-  return error?.let { Parsed.Failure(it) } ?: Parsed.Success(values)
+private fun resolveListBranchArgs(args: JsonObject, branch: String): Parsed<ListBranchArgs> {
+  val parts = collectListBranchParts(args)
+  val firstError = parts.firstError
+  if (firstError != null) return Parsed.Failure(firstError)
+  val mode = parts.mode ?: return Parsed.Failure(invalidInputJson(ToolSchemas.KEY_MODE, REASON_INVALID))
+  return Parsed.Success(
+    ListBranchArgs(
+      branch = branch,
+      mode = mode,
+      filter = parts.filter,
+      limit = parts.limit,
+      includeLinks = args.booleanOrNull(ToolSchemas.KEY_INCLUDE_LINKS) == true,
+      includeBody = args.booleanOrNull(ToolSchemas.KEY_INCLUDE_BODY) ?: (mode == ListBranchMode.Full),
+      legacyShape = isLegacyListBranchShape(args),
+    ),
+  )
 }
 
-private fun parseSessionStartRetrievalModeArgument(
-  args: JsonObject,
-): Parsed<SessionStartRetrievalMode> {
-  val modeRaw = args.optionalStringArgument(ToolSchemas.KEY_RETRIEVAL_MODE)
-  return when (modeRaw) {
-    is Parsed.Failure -> Parsed.Failure(modeRaw.json)
-    is Parsed.Success -> {
-      val raw = modeRaw.value
-      val mode = raw?.let(::parseSessionStartRetrievalMode)
-      when {
-        raw == null -> Parsed.Success(SessionStartRetrievalMode.MapFirst)
-        mode != null -> Parsed.Success(mode)
-        else -> Parsed.Failure(invalidInputJson(ToolSchemas.KEY_RETRIEVAL_MODE, REASON_INVALID))
-      }
-    }
-  }
+private fun isLegacyListBranchShape(args: JsonObject): Boolean {
+  val extendedKeys = setOf(
+    ToolSchemas.KEY_MODE,
+    ToolSchemas.KEY_FILTER,
+    ToolSchemas.KEY_LIMIT,
+    ToolSchemas.KEY_INCLUDE_LINKS,
+    ToolSchemas.KEY_INCLUDE_BODY,
+  )
+  return args.keys.none { it in extendedKeys }
+}
+
+private data class ListBranchParts(
+  val mode: ListBranchMode?,
+  val filter: String?,
+  val limit: Int?,
+  val firstError: JsonObject?,
+)
+
+private fun collectListBranchParts(args: JsonObject): ListBranchParts {
+  val modeRaw = args.optionalStringArgument(ToolSchemas.KEY_MODE)
+  val filterParsed = args.optionalStringArgument(ToolSchemas.KEY_FILTER)
+  val limitParsed = args.nonNegativeIntArgument(ToolSchemas.KEY_LIMIT)
+  val error = firstFailureJson(modeRaw, filterParsed, limitParsed)
+  val modeString = if (modeRaw is Parsed.Success) modeRaw.value else null
+  val mode = parseListBranchMode(modeString)
+  val filter = if (filterParsed is Parsed.Success) filterParsed.value else null
+  val limit = if (limitParsed is Parsed.Success) limitParsed.value else null
+  return ListBranchParts(mode = mode, filter = filter, limit = limit, firstError = error)
+}
+
+private fun parseListBranchMode(raw: String?): ListBranchMode? = when (raw) {
+  null -> ListBranchMode.Full
+  ToolSchemas.LIST_MODE_FULL -> ListBranchMode.Full
+  ToolSchemas.LIST_MODE_INDEX -> ListBranchMode.Index
+  else -> null
 }
 
 private fun parseCaptureObservationKind(raw: String): CaptureObservationKind? = when (raw.lowercase()) {
@@ -321,19 +324,3 @@ private fun parseCaptureObservationKind(raw: String): CaptureObservationKind? = 
   ToolSchemas.PAYLOAD_KIND_EPISODE -> CaptureObservationKind.Episode
   else -> null
 }
-
-internal fun permissionDeniedReadBlocked(rawId: String): JsonObject = statusJson(
-  ToolSchemas.STATUS_PERMISSION_DENIED,
-  mapOf(
-    ToolSchemas.KEY_PATH to rawId,
-    ToolSchemas.KEY_REASON to PERMISSION_DENIED_PEOPLE,
-  ),
-)
-
-internal fun permissionDeniedOutside(rawId: String): JsonObject = statusJson(
-  ToolSchemas.STATUS_PERMISSION_DENIED,
-  mapOf(
-    ToolSchemas.KEY_PATH to rawId,
-    ToolSchemas.KEY_REASON to PERMISSION_DENIED_OUTSIDE,
-  ),
-)

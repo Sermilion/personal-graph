@@ -12,6 +12,7 @@ object ToolSchemas {
   const val TOOL_LIST_PENDING_SENSITIVE: String = "list_pending_sensitive"
   const val TOOL_READ_NODE: String = "read_node"
   const val TOOL_LIST_BRANCH: String = "list_branch"
+  const val TOOL_SEARCH_NODES: String = "search_nodes"
   const val TOOL_SESSION_START: String = "session_start"
 
   const val DESC_WRITE_STATE: String =
@@ -31,7 +32,16 @@ object ToolSchemas {
     "Read a full node body by id after session_start returns a precise available_map or suggested_reads follow-up. " +
       "Reads under people/ are blocked."
   const val DESC_LIST_BRANCH: String =
-    "List full node bodies under a branch path as an explicit follow-up. Reads under people/ are blocked."
+    "List nodes under a branch path as an explicit follow-up. Defaults to mode=full (includes bodies). " +
+      "Use mode=index for compact metadata-only entries when full bodies are not needed; this avoids " +
+      "decoding bodies. Supports filter (substring on id), limit, include_links, include_body. " +
+      "Reads under people/ are blocked; staging/sensitive/ is hard-excluded."
+  const val DESC_SEARCH_NODES: String =
+    "Search nodes by id, metadata (subject/topic/alias/hypothesis/domain/branch), or body. " +
+      "Metadata-first: exact id/path/alias/title matches are answered from the graph index without " +
+      "decoding bodies. Body scan only runs when body_fallback=true (default) and metadata matches " +
+      "are insufficient. Returns ranked compact hits with snippet, links, match_fields, score plus a " +
+      "search_plan and estimated_tokens. Reads under people/ are blocked; staging/sensitive/ is hard-excluded."
   const val DESC_SESSION_START: String =
     "Map-first session-start retrieval: load bounded root context, return a compact available_map, " +
       "and suggest exact read_node/list_branch follow-ups."
@@ -66,6 +76,36 @@ object ToolSchemas {
     "Session-start retrieval mode. Defaults to map-first: loaded_context contains bounded root orientation, " +
       "available_map is compact, and suggested_reads names follow-up nodes. full-loading is an explicit opt-in " +
       "for callers that intentionally want loaded node bodies."
+  const val DESC_FIELD_SEARCH_QUERY: String =
+    "Search query string. Matched against ids, metadata (subject/topic/alias/hypothesis/domain/branch) " +
+      "and optionally body. Recency keywords (recent/latest/today/merged/opened/status) boost score."
+  const val DESC_FIELD_SEARCH_FIELDS: String =
+    "Fields to search. Default [id, metadata, body]. Drop body to stay metadata-only."
+  const val DESC_FIELD_BODY_FALLBACK: String =
+    "If true (default), body is scanned only when metadata-only matches are insufficient. " +
+      "Set false to suppress body scan entirely."
+  const val DESC_FIELD_LIST_MODE: String =
+    "List mode. Defaults to full (includes bodies). Use index for compact metadata-only entries; " +
+      "no bodies are decoded in index mode."
+  const val DESC_FIELD_LIST_FILTER: String =
+    "Optional substring filter applied to entry ids before formatting (e.g. SKILL-33)."
+  const val DESC_FIELD_LIST_LIMIT: String =
+    "Optional maximum number of entries returned. Omit for no cap."
+  const val DESC_FIELD_INCLUDE_LINKS: String =
+    "If true, include link targets per entry. Default false to keep responses compact."
+  const val DESC_FIELD_INCLUDE_BODY: String =
+    "If true, include the node body for each entry. Default true for mode=full, false for mode=index."
+  const val DESC_FIELD_SEARCH_BRANCHES: String =
+    "Optional array of branch paths under the vault root to scope the search " +
+      "(e.g. [\"state\", \"domains/work\"]). Omit to search a curated default set " +
+      "(state, domains, patterns, emotional-states, timeline, staging/observations, outdated). " +
+      "Read-blocked or index-excluded branches are silently dropped."
+  const val DESC_FIELD_SEARCH_LIMIT: String =
+    "Maximum number of hits returned. Defaults to 20. Hits are ranked metadata-first; lower the cap " +
+      "to keep responses compact when only the top result matters."
+  const val DESC_FIELD_SEARCH_INCLUDE_BODY: String =
+    "If true, include the full node body for each hit. Defaults to false to keep responses compact; " +
+      "use read_node to fetch a body once a hit looks relevant."
 
   const val KEY_ID: String = "id"
   const val KEY_OBSERVATION: String = "observation"
@@ -132,6 +172,28 @@ object ToolSchemas {
   const val KEY_UPDATED: String = "updated"
   const val KEY_LINK_COUNT: String = "link_count"
   const val KEY_PRIORITY: String = "priority"
+  const val KEY_QUERY: String = "query"
+  const val KEY_BRANCHES: String = "branches"
+  const val KEY_LIMIT: String = "limit"
+  const val KEY_SEARCH_FIELDS: String = "search_fields"
+  const val KEY_BODY_FALLBACK: String = "body_fallback"
+  const val KEY_MODE: String = "mode"
+  const val KEY_FILTER: String = "filter"
+  const val KEY_INCLUDE_LINKS: String = "include_links"
+  const val KEY_INCLUDE_BODY: String = "include_body"
+  const val KEY_SEARCH_PLAN: String = "search_plan"
+  const val KEY_METADATA_INDEX_USED: String = "metadata_index_used"
+  const val KEY_BODY_FALLBACK_USED: String = "body_fallback_used"
+  const val KEY_BRANCHES_SEARCHED: String = "branches_searched"
+  const val KEY_ESTIMATED_TOKENS: String = "estimated_tokens"
+  const val KEY_METADATA_TOKENS: String = "metadata_tokens"
+  const val KEY_BODY_TOKENS: String = "body_tokens"
+  const val KEY_PRUNED_BODY_TOKENS: String = "pruned_body_tokens"
+  const val KEY_MATCH_FIELDS: String = "match_fields"
+  const val KEY_SNIPPET: String = "snippet"
+  const val KEY_SCORE: String = "score"
+  const val KEY_HITS: String = "hits"
+  const val KEY_ENTRIES: String = "entries"
 
   const val STATUS_OK: String = "ok"
   const val STATUS_PERMISSION_DENIED: String = "permission_denied"
@@ -192,6 +254,15 @@ object ToolSchemas {
 
   val ENUM_CAPTURE_OBSERVATION_KINDS: List<String> = listOf(PAYLOAD_KIND_STATE, PAYLOAD_KIND_EPISODE)
   val ENUM_RETRIEVAL_MODES: List<String> = listOf("map-first", "full-loading")
+
+  const val LIST_MODE_FULL: String = "full"
+  const val LIST_MODE_INDEX: String = "index"
+  val ENUM_LIST_MODES: List<String> = listOf(LIST_MODE_FULL, LIST_MODE_INDEX)
+
+  const val SEARCH_FIELD_ID: String = "id"
+  const val SEARCH_FIELD_METADATA: String = "metadata"
+  const val SEARCH_FIELD_BODY: String = "body"
+  val ENUM_SEARCH_FIELDS: List<String> = listOf(SEARCH_FIELD_ID, SEARCH_FIELD_METADATA, SEARCH_FIELD_BODY)
 
   const val DECISION_REJECTED: String = "rejected"
   const val DECISION_STAGED_OBSERVATION: String = "staged_observation"
