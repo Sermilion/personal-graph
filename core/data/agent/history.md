@@ -1,5 +1,40 @@
 # core/data — history
 
+## [2026-05-03] graph-index-and-token-foundation (PG-6 subtask 1 of 4)
+Areas: core/domain (GraphIndexRepository + GraphIndexInvalidator contracts, GraphIndexEntry model, TokenEstimator, VaultPolicy index guard), core/data (PersonalGraphGraphIndexRepository + PersonalGraphVaultRepository invalidation hooks + DataComponent providers), core/testing (NoOpGraphIndexInvalidator), mcp-server (DI exposure only — no tool surface change)
+- New `GraphIndexRepository` is the compact, lazily-built index over the vault: `listEntriesInBranch` / `findEntry` / `findEntryByAlias|Title|Path` populate per-branch state on demand, never throw, return null/empty on miss; cold lookups against a never-listed branch return null by design (documented in KDoc) — callers needing exhaustive coverage must list-first (reusable for subtask 2's `search_nodes` index-first path)
+- `GraphIndexInvalidator` is a separate domain interface so `PersonalGraphVaultRepository` depends on the invalidation contract, not on the data-layer index impl — breaks the bidirectional dep cleanly (reusable pattern when wiring caches that observe writes)
+- `PersonalGraphGraphIndexRepository` is `@AppScope` and implements both contracts so kotlin-inject yields a single shared instance for both `@Provides` bindings (DI identity invariant)
+- Cache invariants: per-file key is `(fileSize, fileModifiedAtMillis)`; branch-root mtime drop runs at the start of `listEntriesInBranch` and prunes only entries whose `branch == prefix || startsWith("$prefix/")` (proper prefix match, not raw `startsWith`); `invalidate(id)` removes from main cache and prunes alias/title/path side maps; side-map mutations are guarded by `synchronized(sideMapLock)` so concurrent finders never observe a transiently-empty map
+- Lazy build reuses `MarkdownFrontmatterCodec.decodePreview` with `BODY_PREVIEW_WORD_LIMIT=64` — no full-body decode for the index path; snippets capped at `MAX_SNIPPET_LENGTH=200` chars; oversized files (>1 MiB) are skipped at debug log so the reader can tell why a known node is missing (reusable bounded-decode pattern)
+- Safety: `VaultPolicy.INDEX_HARD_EXCLUDED_BRANCH_PREFIXES = {VaultLayout.BRANCH_PEOPLE, VaultLayout.BRANCH_STAGING_SENSITIVE}` (constants from `VaultLayout`, no hardcoded strings); `isIndexExcluded` is independent of `isReadAllowed`/`isReadBlocked` so even if `VaultPolicy` later opens `staging/` reads for some path, the index still hard-excludes `staging/sensitive/`; checks fire at branch entry, per-file, and per-link layers; `linkCount` reflects the post-filter count so blocked link targets never leak via metadata
+- Title-key fallback to leaf segment is intentionally NOT used — `titleIndex` is populated only when an entry has `subject` or `topic`, avoiding leaf-name collisions across branches (e.g. `state/preferences/sample` vs `state/roles/sample`)
+- Move-hook in `PersonalGraphVaultRepository` invalidates **both** the original and the post-move id (`movedNodeId` reconstructs the new id; explicit try/catch returning nullable, NOT `runCatching` — `kotlin.Result` is banned project-wide); invalidation fires only on `WriteOutcome.Applied` for write/move/delete (pitfall: do NOT invalidate on Failed/NotFound/Conflict — would thrash the cache)
+- `TokenEstimator` is a stateless `object` (no `@Inject` since core/domain has no kotlin-inject annotations on existing helpers) wired via explicit `@Provides fun provideTokenEstimator()`; deterministic ceiling-divide with documented `CHARS_PER_TOKEN=4`; `estimateMetadata` and `estimateBody` are typed wrappers around `estimateString` so future callers can specialize without churn (reusable for every MCP response that needs `estimated_tokens`)
+- Detekt friction (foundation pattern for index-style helpers): `ReturnCount=3` and `TooManyFunctions=20` force aggressive helper extraction + elvis chains; refactored `buildOrCacheFromFile` into `eligibleNodeIdOrNull` / `statOrNull` / `readRawOrNull` / `decodeAndCache`; collapsed try/catch returns into a `when` expression; reused this shape elsewhere — reusable when adding any other multi-step nullable pipeline in this module
+- Test scaffolding: `NoOpGraphIndexInvalidator` lives in `core/testing` so any service test that constructs `PersonalGraphVaultRepository` directly can satisfy the new ctor param without re-declaring an anonymous object (pitfall: forgetting this breaks four pre-existing tests at compile time)
+- mcp-server consumers are NOT wired this subtask — `McpServerComponent` exposes `graphIndexRepository` and `tokenEstimator` as `abstract val` so subtask 2 (`search_nodes` index-first / `list_branch(mode=index)`) can wire MCP tools without re-touching DI
+Feature flag: N/A
+Acceptance criteria: 7/7 implemented (subtask AC1-AC6 plus AC7 `./gradlew check` pass)
+
+## [2026-05-03] search-first-graph-traversal-mcp
+Areas: core/domain (repository contract), core/data (ranked search), mcp-server schemas/tools, README/docs/tests
+- Added `search_nodes` so agents can find exact ids, metadata, and body snippets without using `list_branch` as a branch-wide grep
+- Added `traverse_graph` so agents can start from a query or explicit node ids and collect a bounded link/backlink subgraph before deciding which full bodies to read
+- Search and traversal responses default to compact metadata/snippets/links, keep full bodies behind `include_body=true`, and cap limits/depth to keep prompt use bounded
+Feature flag: N/A
+Acceptance criteria: search-first graph lookup path implemented
+
+## [2026-05-03] session-start-index-only-map-first
+Areas: core/data (retrieval map/suggestions), mcp-server schemas, docs/tests
+- Default `MapFirst` retrieval now returns `available_map` as branch index entries only; node summaries, aliases, links, and node-level map entries are reserved for explicit `FullLoading`
+- Default `suggested_reads` can point to branch ids so agents can call `list_branch` only when they need deeper context
+- Map-first no longer expands linked pattern hubs during initial load; pattern expansion remains on the explicit full-loading path
+- MCP `session_start` no longer emits duplicate `audit_entries`; `audit` is the canonical audit array
+- Documentation and MCP schema text now describe the default response as index-only to keep initial prompt/token use bounded
+Feature flag: N/A
+Acceptance criteria: initial load token reduction implemented
+
 ## [2026-04-30] vault-navigation-note-generation-rules (GP-6)
 Areas: core/domain (layout), core/data (scaffold/capture/tests), mcp-server schemas, README, external Obsidian vault
 - Vault scaffolding now creates idempotent `domains/**/index.md` navigation notes from a central active-domain list while preserving user-authored index files.

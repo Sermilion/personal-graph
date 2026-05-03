@@ -14,6 +14,7 @@ import com.sermilion.personalgraph.domain.model.StateCategory
 import com.sermilion.personalgraph.domain.model.StateNode
 import com.sermilion.personalgraph.domain.repository.VaultRepository
 import com.sermilion.personalgraph.domain.repository.WriteOutcome
+import com.sermilion.personalgraph.testing.NoOpGraphIndexInvalidator
 import com.sermilion.personalgraph.testing.TestDispatcherProvider
 import com.sermilion.personalgraph.testing.VaultNodeFixtures
 import io.kotest.core.spec.style.FunSpec
@@ -47,6 +48,7 @@ class PersonalGraphVaultCaptureServiceTest :
         dispatcherProvider = TestDispatcherProvider(),
         codec = MarkdownFrontmatterCodec(),
         pathResolver = resolver,
+        graphIndexInvalidator = NoOpGraphIndexInvalidator,
       )
       return PersonalGraphVaultCaptureService(repository, fixedClock()) to repository
     }
