@@ -26,6 +26,11 @@ object VaultPolicy {
     VaultLayout.BRANCH_OUTDATED,
   )
 
+  val INDEX_HARD_EXCLUDED_BRANCH_PREFIXES: Set<String> = setOf(
+    VaultLayout.BRANCH_PEOPLE,
+    VaultLayout.BRANCH_STAGING_SENSITIVE,
+  )
+
   fun isWriteAllowed(branchOrPath: String): Boolean = matchesPrefix(branchOrPath, WHITELISTED_WRITE_BRANCH_PREFIXES)
 
   fun isReadAllowed(branchOrPath: String): Boolean {
@@ -34,6 +39,8 @@ object VaultPolicy {
   }
 
   fun isReadBlocked(branchOrPath: String): Boolean = matchesPrefix(branchOrPath, READ_BLOCKED_BRANCH_PREFIXES)
+
+  fun isIndexExcluded(branchOrPath: String): Boolean = matchesPrefix(branchOrPath, INDEX_HARD_EXCLUDED_BRANCH_PREFIXES)
 
   private fun matchesPrefix(value: String, prefixes: Set<String>): Boolean {
     val normalized = value.trim('/')

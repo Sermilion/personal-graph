@@ -6,6 +6,7 @@ import com.sermilion.personalgraph.domain.layout.VaultLayout
 import com.sermilion.personalgraph.domain.model.NodeId
 import com.sermilion.personalgraph.domain.model.StateNode
 import com.sermilion.personalgraph.domain.model.SubjectNode
+import com.sermilion.personalgraph.domain.repository.GraphIndexInvalidator
 import com.sermilion.personalgraph.domain.repository.WriteOutcome
 import com.sermilion.personalgraph.testing.TestDispatcherProvider
 import com.sermilion.personalgraph.testing.VaultNodeFixtures
@@ -25,11 +26,16 @@ class PersonalGraphVaultRepositoryTest :
       val tempDir = Files.createTempDirectory("vault-repo-")
       val codec = MarkdownFrontmatterCodec()
       val resolver = VaultPathResolver()
+      val invalidator = object : GraphIndexInvalidator {
+        override suspend fun invalidate(id: NodeId) = Unit
+        override suspend fun invalidateAll() = Unit
+      }
       val repo = PersonalGraphVaultRepository(
         vaultRoot = tempDir,
         dispatcherProvider = TestDispatcherProvider(),
         codec = codec,
         pathResolver = resolver,
+        graphIndexInvalidator = invalidator,
       )
       return repo to tempDir
     }

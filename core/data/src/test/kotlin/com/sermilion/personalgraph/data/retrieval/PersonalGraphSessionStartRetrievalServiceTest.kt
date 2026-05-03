@@ -9,6 +9,7 @@ import com.sermilion.personalgraph.domain.repository.WriteOutcome
 import com.sermilion.personalgraph.domain.retrieval.RetrievalDomain
 import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalMode
 import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalRequest
+import com.sermilion.personalgraph.testing.NoOpGraphIndexInvalidator
 import com.sermilion.personalgraph.testing.TestDispatcherProvider
 import com.sermilion.personalgraph.testing.VaultNodeFixtures
 import io.kotest.core.spec.style.FunSpec
@@ -34,6 +35,7 @@ class PersonalGraphSessionStartRetrievalServiceTest :
         dispatcherProvider = dispatcherProvider,
         codec = MarkdownFrontmatterCodec(),
         pathResolver = resolver,
+        graphIndexInvalidator = NoOpGraphIndexInvalidator,
       )
       Files.writeString(tempDir.resolve(VaultLayout.BRAIAN_FILENAME), "# Braian\nRoot context.\n")
       val service = PersonalGraphSessionStartRetrievalService(

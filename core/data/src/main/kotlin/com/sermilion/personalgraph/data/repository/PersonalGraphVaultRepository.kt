@@ -10,6 +10,7 @@ import com.sermilion.personalgraph.domain.model.NodeId
 import com.sermilion.personalgraph.domain.model.StateNode
 import com.sermilion.personalgraph.domain.model.SubjectNode
 import com.sermilion.personalgraph.domain.model.VaultNode
+import com.sermilion.personalgraph.domain.repository.GraphIndexInvalidator
 import com.sermilion.personalgraph.domain.repository.VaultRepository
 import com.sermilion.personalgraph.domain.repository.WriteOutcome
 import io.github.oshai.kotlinlogging.KotlinLogging
@@ -37,6 +38,7 @@ class PersonalGraphVaultRepository(
   private val dispatcherProvider: DispatcherProvider,
   private val codec: MarkdownFrontmatterCodec,
   private val pathResolver: VaultPathResolver,
+  private val graphIndexInvalidator: GraphIndexInvalidator,
 ) : VaultRepository {
 
   private val logger = KotlinLogging.logger {}
@@ -135,15 +137,36 @@ class PersonalGraphVaultRepository(
   }
 
   override suspend fun writeNode(node: VaultNode): WriteOutcome = withContext(dispatcherProvider.io) {
-    nodeMutexes.computeIfAbsent(node.id) { Mutex() }.withLock { writeNodeLocked(node) }
+    val outcome = nodeMutexes.computeIfAbsent(node.id) { Mutex() }.withLock { writeNodeLocked(node) }
+    if (outcome is WriteOutcome.Applied) graphIndexInvalidator.invalidate(node.id)
+    outcome
   }
 
   override suspend fun moveNode(id: NodeId, newBranchPath: String): WriteOutcome = withContext(dispatcherProvider.io) {
-    nodeMutexes.computeIfAbsent(id) { Mutex() }.withLock { moveNodeLockedOrLogged(id, newBranchPath) }
+    val outcome = nodeMutexes.computeIfAbsent(id) { Mutex() }.withLock { moveNodeLockedOrLogged(id, newBranchPath) }
+    if (outcome is WriteOutcome.Applied) {
+      graphIndexInvalidator.invalidate(id)
+      val movedId = movedNodeId(id, newBranchPath)
+      if (movedId != null && movedId != id) graphIndexInvalidator.invalidate(movedId)
+    }
+    outcome
   }
 
   override suspend fun deleteNode(id: NodeId): WriteOutcome = withContext(dispatcherProvider.io) {
-    nodeMutexes.computeIfAbsent(id) { Mutex() }.withLock { deleteNodeLockedOrLogged(id) }
+    val outcome = nodeMutexes.computeIfAbsent(id) { Mutex() }.withLock { deleteNodeLockedOrLogged(id) }
+    if (outcome is WriteOutcome.Applied) graphIndexInvalidator.invalidate(id)
+    outcome
+  }
+
+  private fun movedNodeId(id: NodeId, newBranchPath: String): NodeId? {
+    val leaf = id.value.substringAfterLast('/')
+    val newValue = "${newBranchPath.trim('/')}/$leaf"
+    return try {
+      NodeId(newValue)
+    } catch (e: IllegalArgumentException) {
+      logger.debug(e) { "movedNodeId rejected newValue=$newValue for id=$id" }
+      null
+    }
   }
 
   override suspend fun listBacklinks(id: NodeId): List<VaultNode> = withContext(dispatcherProvider.io) {

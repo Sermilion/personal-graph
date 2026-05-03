@@ -5,8 +5,10 @@ import com.sermilion.personalgraph.common.di.CoreComponent
 import com.sermilion.personalgraph.common.dispatcher.DispatcherProvider
 import com.sermilion.personalgraph.data.di.DataComponent
 import com.sermilion.personalgraph.domain.capture.VaultCaptureService
+import com.sermilion.personalgraph.domain.repository.GraphIndexRepository
 import com.sermilion.personalgraph.domain.repository.VaultRepository
 import com.sermilion.personalgraph.domain.scaffold.VaultScaffolder
+import com.sermilion.personalgraph.domain.tokens.TokenEstimator
 import com.sermilion.personalgraph.mcp.tools.VaultMcpTools
 import me.tatarka.inject.annotations.Component
 import me.tatarka.inject.annotations.Provides
@@ -22,4 +24,6 @@ abstract class McpServerComponent(@get:Provides val vaultRoot: Path) :
   abstract val vaultScaffolder: VaultScaffolder
   abstract val vaultCaptureService: VaultCaptureService
   abstract val vaultMcpTools: VaultMcpTools
+  abstract val graphIndexRepository: GraphIndexRepository
+  abstract val tokenEstimator: TokenEstimator
 }
