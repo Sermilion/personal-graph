@@ -13,6 +13,7 @@ object ToolSchemas {
   const val TOOL_READ_NODE: String = "read_node"
   const val TOOL_LIST_BRANCH: String = "list_branch"
   const val TOOL_SEARCH_NODES: String = "search_nodes"
+  const val TOOL_TRAVERSE_GRAPH: String = "traverse_graph"
   const val TOOL_SESSION_START: String = "session_start"
 
   const val DESC_WRITE_STATE: String =
@@ -42,9 +43,16 @@ object ToolSchemas {
       "decoding bodies. Body scan only runs when body_fallback=true (default) and metadata matches " +
       "are insufficient. Returns ranked compact hits with snippet, links, match_fields, score plus a " +
       "search_plan and estimated_tokens. Reads under people/ are blocked; staging/sensitive/ is hard-excluded."
+  const val DESC_TRAVERSE_GRAPH: String =
+    "Bounded graph traversal around query/start_ids. Returns entrypoints, scored nodes, labeled weighted " +
+      "edges, pruned candidates, prioritized suggested_reads, and estimated_tokens. Edge labels are " +
+      "link, backlink, subject_evidence, timeline, state, pattern, contradiction, and background. " +
+      "max_nodes and budget_tokens cap the response; pruned candidates are surfaced with reasons instead of " +
+      "silently expanding the graph. Read-blocked branches and ids are filtered before formatting."
   const val DESC_SESSION_START: String =
     "Map-first session-start retrieval: load bounded root context, return a compact available_map, " +
-      "and suggest exact read_node/list_branch follow-ups."
+      "suggest search_nodes/list_branch(index) follow-ups before any full-body read, and expose " +
+      "suggested_actions plus estimated_tokens for the retrieval plan."
 
   const val DESC_FIELD_STATE_ID: String =
     "Node id. Accepts canonical plural prefix (e.g. state/roles/<leaf>), or a bare leaf which is " +
@@ -74,8 +82,9 @@ object ToolSchemas {
     "Optional state scopes for state that applies to multiple domains. Omit for global state."
   const val DESC_FIELD_RETRIEVAL_MODE: String =
     "Session-start retrieval mode. Defaults to map-first: loaded_context contains bounded root orientation, " +
-      "available_map is compact, and suggested_reads names follow-up nodes. full-loading is an explicit opt-in " +
-      "for callers that intentionally want loaded node bodies."
+      "available_map is compact, suggested_reads and suggested_actions name follow-up paths, and " +
+      "estimated_tokens reports the retrieval cost. full-loading is an explicit opt-in for callers that " +
+      "intentionally want loaded node bodies."
   const val DESC_FIELD_SEARCH_QUERY: String =
     "Search query string. Matched against ids, metadata (subject/topic/alias/hypothesis/domain/branch) " +
       "and optionally body. Recency keywords (recent/latest/today/merged/opened/status) boost score."
@@ -106,6 +115,27 @@ object ToolSchemas {
   const val DESC_FIELD_SEARCH_INCLUDE_BODY: String =
     "If true, include the full node body for each hit. Defaults to false to keep responses compact; " +
       "use read_node to fetch a body once a hit looks relevant."
+  const val DESC_FIELD_TRAVERSE_QUERY: String =
+    "Traversal seed query. Exact ids, branches, and metadata hints are all treated as entrypoint signals."
+  const val DESC_FIELD_TRAVERSE_START_IDS: String =
+    "Optional start node ids to seed traversal directly. Use canonical node ids."
+  const val DESC_FIELD_TRAVERSE_BRANCHES: String =
+    "Optional branch scope for traversal. Omit to use the default allowed retrieval branches."
+  const val DESC_FIELD_TRAVERSE_EDGE_TYPES: String =
+    "Edge labels to include. Default includes the traversal vocabulary: link, backlink, subject_evidence, " +
+      "timeline, state, pattern, contradiction, and background."
+  const val DESC_FIELD_TRAVERSE_MAX_DEPTH: String =
+    "Maximum hop distance from the selected entrypoints. Defaults to 1 and must be non-negative."
+  const val DESC_FIELD_TRAVERSE_MAX_NODES: String =
+    "Maximum number of nodes returned. Nodes beyond this cap are moved into pruned with reasons."
+  const val DESC_FIELD_TRAVERSE_BUDGET_TOKENS: String =
+    "Token budget for the traversal response. When the next node would exceed the budget, it is pruned " +
+      "with a stable reason."
+  const val DESC_FIELD_TRAVERSE_INCLUDE_BODIES: String =
+    "If true, include node bodies in the traversal response. Defaults to false to keep the result compact."
+  const val DESC_FIELD_TRAVERSE_RANK_BY: String =
+    "Ranking hints for traversal. The parser accepts the scoring rubric terms exact_id_match, edge_weight, " +
+      "recency, and branch_relevance; recency is the active ranking toggle."
 
   const val KEY_ID: String = "id"
   const val KEY_OBSERVATION: String = "observation"
@@ -163,6 +193,7 @@ object ToolSchemas {
   const val KEY_LOADED_CONTEXT: String = "loaded_context"
   const val KEY_AVAILABLE_MAP: String = "available_map"
   const val KEY_SUGGESTED_READS: String = "suggested_reads"
+  const val KEY_SUGGESTED_ACTIONS: String = "suggested_actions"
   const val KEY_AUDIT_ENTRIES: String = "audit_entries"
   const val KEY_SOURCE: String = "source"
   const val KEY_KIND: String = "kind"
@@ -172,6 +203,8 @@ object ToolSchemas {
   const val KEY_UPDATED: String = "updated"
   const val KEY_LINK_COUNT: String = "link_count"
   const val KEY_PRIORITY: String = "priority"
+  const val KEY_TOOL: String = "tool"
+  const val KEY_ARGS: String = "args"
   const val KEY_QUERY: String = "query"
   const val KEY_BRANCHES: String = "branches"
   const val KEY_LIMIT: String = "limit"
@@ -185,7 +218,23 @@ object ToolSchemas {
   const val KEY_METADATA_INDEX_USED: String = "metadata_index_used"
   const val KEY_BODY_FALLBACK_USED: String = "body_fallback_used"
   const val KEY_BRANCHES_SEARCHED: String = "branches_searched"
+  const val KEY_START_IDS: String = "start_ids"
+  const val KEY_EDGE_TYPES: String = "edge_types"
+  const val KEY_MAX_DEPTH: String = "max_depth"
+  const val KEY_MAX_NODES: String = "max_nodes"
+  const val KEY_BUDGET_TOKENS: String = "budget_tokens"
+  const val KEY_INCLUDE_BODIES: String = "include_bodies"
+  const val KEY_RANK_BY: String = "rank_by"
+  const val KEY_ENTRYPOINTS: String = "entrypoints"
+  const val KEY_EDGES: String = "edges"
+  const val KEY_PRUNED: String = "pruned"
+  const val KEY_FROM: String = "from"
+  const val KEY_TO: String = "to"
+  const val KEY_WEIGHT: String = "weight"
+  const val KEY_DISTANCE: String = "distance"
+  const val KEY_LABEL: String = "label"
   const val KEY_ESTIMATED_TOKENS: String = "estimated_tokens"
+  const val KEY_RESPONSE_TOTAL: String = "response_total"
   const val KEY_METADATA_TOKENS: String = "metadata_tokens"
   const val KEY_BODY_TOKENS: String = "body_tokens"
   const val KEY_PRUNED_BODY_TOKENS: String = "pruned_body_tokens"
@@ -263,6 +312,36 @@ object ToolSchemas {
   const val SEARCH_FIELD_METADATA: String = "metadata"
   const val SEARCH_FIELD_BODY: String = "body"
   val ENUM_SEARCH_FIELDS: List<String> = listOf(SEARCH_FIELD_ID, SEARCH_FIELD_METADATA, SEARCH_FIELD_BODY)
+
+  const val TRAVERSAL_EDGE_TYPE_LINK: String = "link"
+  const val TRAVERSAL_EDGE_TYPE_BACKLINK: String = "backlink"
+  const val TRAVERSAL_EDGE_TYPE_SUBJECT_EVIDENCE: String = "subject_evidence"
+  const val TRAVERSAL_EDGE_TYPE_TIMELINE: String = "timeline"
+  const val TRAVERSAL_EDGE_TYPE_STATE: String = "state"
+  const val TRAVERSAL_EDGE_TYPE_PATTERN: String = "pattern"
+  const val TRAVERSAL_EDGE_TYPE_CONTRADICTION: String = "contradiction"
+  const val TRAVERSAL_EDGE_TYPE_BACKGROUND: String = "background"
+  val ENUM_TRAVERSAL_EDGE_TYPES: List<String> = listOf(
+    TRAVERSAL_EDGE_TYPE_LINK,
+    TRAVERSAL_EDGE_TYPE_BACKLINK,
+    TRAVERSAL_EDGE_TYPE_SUBJECT_EVIDENCE,
+    TRAVERSAL_EDGE_TYPE_TIMELINE,
+    TRAVERSAL_EDGE_TYPE_STATE,
+    TRAVERSAL_EDGE_TYPE_PATTERN,
+    TRAVERSAL_EDGE_TYPE_CONTRADICTION,
+    TRAVERSAL_EDGE_TYPE_BACKGROUND,
+  )
+
+  const val TRAVERSAL_RANK_BY_EXACT_ID_MATCH: String = "exact_id_match"
+  const val TRAVERSAL_RANK_BY_EDGE_WEIGHT: String = "edge_weight"
+  const val TRAVERSAL_RANK_BY_RECENCY: String = "recency"
+  const val TRAVERSAL_RANK_BY_BRANCH_RELEVANCE: String = "branch_relevance"
+  val ENUM_TRAVERSAL_RANK_BY: List<String> = listOf(
+    TRAVERSAL_RANK_BY_EXACT_ID_MATCH,
+    TRAVERSAL_RANK_BY_EDGE_WEIGHT,
+    TRAVERSAL_RANK_BY_RECENCY,
+    TRAVERSAL_RANK_BY_BRANCH_RELEVANCE,
+  )
 
   const val DECISION_REJECTED: String = "rejected"
   const val DECISION_STAGED_OBSERVATION: String = "staged_observation"

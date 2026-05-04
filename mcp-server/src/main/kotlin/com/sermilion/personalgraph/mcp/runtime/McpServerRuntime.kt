@@ -5,6 +5,7 @@ import com.sermilion.personalgraph.mcp.di.create
 import com.sermilion.personalgraph.mcp.tools.ToolSchemaBuilder
 import com.sermilion.personalgraph.mcp.tools.ToolSchemas
 import com.sermilion.personalgraph.mcp.tools.VaultMcpTools
+import com.sermilion.personalgraph.mcp.tools.traverseGraphSchema
 import io.github.oshai.kotlinlogging.KotlinLogging
 import io.modelcontextprotocol.kotlin.sdk.server.Server
 import io.modelcontextprotocol.kotlin.sdk.server.ServerOptions
@@ -110,6 +111,11 @@ object McpServerRuntime {
       description = ToolSchemas.DESC_SEARCH_NODES,
       inputSchema = ToolSchemaBuilder.searchNodesSchema(),
     ) { request -> tools.searchNodes(request.arguments ?: emptyJsonObject).asResult() }
+    server.addTool(
+      name = ToolSchemas.TOOL_TRAVERSE_GRAPH,
+      description = ToolSchemas.DESC_TRAVERSE_GRAPH,
+      inputSchema = traverseGraphSchema(),
+    ) { request -> tools.traverseGraph(request.arguments ?: emptyJsonObject).asResult() }
     server.addTool(
       name = ToolSchemas.TOOL_SESSION_START,
       description = ToolSchemas.DESC_SESSION_START,

@@ -12,6 +12,7 @@ import com.sermilion.personalgraph.cli.di.create
 import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalMode
 import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalReport
 import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalRequest
+import com.sermilion.personalgraph.domain.retrieval.SuggestedActionValue
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.runBlocking
 
@@ -49,46 +50,19 @@ class SessionStartCommand : CliktCommand(name = COMMAND_NAME) {
       appendLine("root_load_order=${root.loadOrder}")
     }
     appendLine()
-    appendLine("Loaded context (${report.loadedContext.size})")
-    for (entry in report.loadedContext) {
-      appendLine(
-        "context=${entry.id}; source=${entry.source.value}; " +
-          "words=${entry.body.wordCount()}; reason=${entry.reason}",
-      )
-      appendLine("context_body_begin=${entry.id}")
-      appendLine(entry.body.trimEnd())
-      appendLine("context_body_end=${entry.id}")
-    }
+    appendLoadedContext(report)
     appendLine()
-    appendLine("Available map (${report.availableMap.size})")
-    for (entry in report.availableMap) {
-      val details = buildList {
-        add("kind=${entry.kind.value}")
-        entry.type?.let { add("type=$it") }
-        entry.category?.let { add("category=$it") }
-        entry.domain?.let { add("domain=$it") }
-        entry.scope?.let { add("scope=$it") }
-        if (entry.scopes.isNotEmpty()) add("scopes=${entry.scopes.joinToString(",")}")
-        entry.nodeCount?.let { add("nodes=$it") }
-        entry.summary?.let { add("summary=$it") }
-      }.joinToString("; ")
-      appendLine("map=${entry.id}; $details; reason=${entry.reason}")
-    }
+    appendAvailableMap(report)
     appendLine()
-    appendLine("Suggested reads (${report.suggestedReads.size})")
-    for (read in report.suggestedReads) {
-      appendLine("read=${read.id}; priority=${read.priority.value}; reason=${read.reason}")
-    }
+    appendSuggestedReads(report)
     appendLine()
-    appendLine("Skipped branches (${report.skippedBranches.size})")
-    for (skip in report.skippedBranches) {
-      appendLine("skipped=${skip.branch}; reason=${skip.reason}")
-    }
+    appendSuggestedActions(report)
     appendLine()
-    appendLine("Audit reasons (${report.audit.size})")
-    for (entry in report.audit) {
-      appendLine("audit=${entry.action}; subject=${entry.subject}; reason=${entry.reason}")
-    }
+    appendEstimatedTokens(report)
+    appendLine()
+    appendSkippedBranches(report)
+    appendLine()
+    appendAudit(report)
   }.trimEnd()
 
   private fun parseRetrievalMode(raw: String): SessionStartRetrievalMode = when (raw) {
@@ -100,6 +74,82 @@ class SessionStartCommand : CliktCommand(name = COMMAND_NAME) {
   companion object {
     const val COMMAND_NAME: String = "session-start"
   }
+}
+
+private fun StringBuilder.appendLoadedContext(report: SessionStartRetrievalReport) {
+  appendLine("Loaded context (${report.loadedContext.size})")
+  for (entry in report.loadedContext) {
+    appendLine(
+      "context=${entry.id}; source=${entry.source.value}; words=${entry.body.wordCount()}; reason=${entry.reason}",
+    )
+    appendLine("context_body_begin=${entry.id}")
+    appendLine(entry.body.trimEnd())
+    appendLine("context_body_end=${entry.id}")
+  }
+}
+
+private fun StringBuilder.appendAvailableMap(report: SessionStartRetrievalReport) {
+  appendLine("Available map (${report.availableMap.size})")
+  for (entry in report.availableMap) {
+    val details = buildList {
+      add("kind=${entry.kind.value}")
+      entry.type?.let { add("type=$it") }
+      entry.category?.let { add("category=$it") }
+      entry.domain?.let { add("domain=$it") }
+      entry.scope?.let { add("scope=$it") }
+      if (entry.scopes.isNotEmpty()) add("scopes=${entry.scopes.joinToString(",")}")
+      entry.nodeCount?.let { add("nodes=$it") }
+      entry.summary?.let { add("summary=$it") }
+    }.joinToString("; ")
+    appendLine("map=${entry.id}; $details; reason=${entry.reason}")
+  }
+}
+
+private fun StringBuilder.appendSuggestedReads(report: SessionStartRetrievalReport) {
+  appendLine("Suggested reads (${report.suggestedReads.size})")
+  for (read in report.suggestedReads) {
+    appendLine("read=${read.id}; priority=${read.priority.value}; reason=${read.reason}")
+  }
+}
+
+private fun StringBuilder.appendSuggestedActions(report: SessionStartRetrievalReport) {
+  appendLine("Suggested actions (${report.suggestedActions.size})")
+  for (action in report.suggestedActions) {
+    appendLine("action=${action.tool}; priority=${action.priority.value}; reason=${action.reason}")
+    for (arg in action.args) {
+      appendLine("action_arg=${action.tool}.${arg.key}=${renderActionArg(arg.value)}")
+    }
+  }
+}
+
+private fun StringBuilder.appendEstimatedTokens(report: SessionStartRetrievalReport) {
+  appendLine(
+    "Estimated tokens total=${report.estimatedTokens.responseTotal}; " +
+      "metadata=${report.estimatedTokens.metadataTokens}; " +
+      "body=${report.estimatedTokens.bodyTokens}; " +
+      "pruned_body=${report.estimatedTokens.prunedBodyTokens}",
+  )
+}
+
+private fun StringBuilder.appendSkippedBranches(report: SessionStartRetrievalReport) {
+  appendLine("Skipped branches (${report.skippedBranches.size})")
+  for (skip in report.skippedBranches) {
+    appendLine("skipped=${skip.branch}; reason=${skip.reason}")
+  }
+}
+
+private fun StringBuilder.appendAudit(report: SessionStartRetrievalReport) {
+  appendLine("Audit reasons (${report.audit.size})")
+  for (entry in report.audit) {
+    appendLine("audit=${entry.action}; subject=${entry.subject}; reason=${entry.reason}")
+  }
+}
+
+private fun renderActionArg(value: SuggestedActionValue): String = when (value) {
+  is SuggestedActionValue.StringValue -> value.value
+  is SuggestedActionValue.BooleanValue -> value.value.toString()
+  is SuggestedActionValue.IntValue -> value.value.toString()
+  is SuggestedActionValue.StringListValue -> value.value.joinToString(",")
 }
 
 private fun String.wordCount(): Int = trim()

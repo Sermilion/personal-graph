@@ -1,6 +1,6 @@
 # PG-6 - Complete MCP graph retrieval optimization
 
-- **Status:** In Progress
+- **Status:** Complete
 - **Issue key:** PG-6
 - **Feature size:** Large
 - **Rollout needed:** false
