@@ -72,3 +72,95 @@ data class SearchOutcome(
   val plan: SearchPlan,
   val estimatedTokens: Int,
 )
+
+enum class TraversalRankBy {
+  Relevance,
+  Recency,
+}
+
+data class TraverseGraphQuery(
+  val query: String = "",
+  val startIds: List<NodeId> = emptyList(),
+  val branches: List<String> = emptyList(),
+  val edgeTypes: Set<TraversalEdgeType> = TraversalEdgeType.DEFAULTS,
+  val maxDepth: Int = DEFAULT_MAX_DEPTH,
+  val maxNodes: Int = DEFAULT_MAX_NODES,
+  val budgetTokens: Int = DEFAULT_BUDGET_TOKENS,
+  val includeBodies: Boolean = false,
+  val rankBy: TraversalRankBy = TraversalRankBy.Relevance,
+) {
+  companion object {
+    const val DEFAULT_MAX_DEPTH: Int = 2
+    const val DEFAULT_MAX_NODES: Int = 20
+    const val DEFAULT_BUDGET_TOKENS: Int = 4_000
+  }
+}
+
+enum class TraversalEdgeType {
+  Link,
+  Backlink,
+  SubjectEvidence,
+  Timeline,
+  State,
+  Pattern,
+  Contradiction,
+  Background,
+  ;
+
+  companion object {
+    val DEFAULTS: Set<TraversalEdgeType> = entries.toSet()
+  }
+}
+
+enum class TraversalPrunedReason {
+  MaxNodes,
+  BudgetTokens,
+}
+
+data class TraversalEntrypoint(
+  val id: NodeId,
+  val reason: String,
+  val score: Int,
+)
+
+data class TraversalNode(
+  val id: NodeId,
+  val type: String,
+  val domain: String?,
+  val subject: String?,
+  val snippet: String,
+  val score: Int,
+  val depth: Int,
+  val matchFields: List<String>,
+  val body: String? = null,
+)
+
+data class TraversalEdge(
+  val from: NodeId,
+  val to: NodeId,
+  val type: TraversalEdgeType,
+  val label: String,
+  val weight: Int,
+)
+
+data class TraversalPrunedCandidate(
+  val id: NodeId,
+  val reason: TraversalPrunedReason,
+  val score: Int,
+  val estimatedTokens: Int,
+)
+
+data class TraversalSuggestedRead(
+  val id: NodeId,
+  val reason: String,
+  val priority: Int,
+)
+
+data class TraverseGraphOutcome(
+  val entrypoints: List<TraversalEntrypoint>,
+  val nodes: List<TraversalNode>,
+  val edges: List<TraversalEdge>,
+  val pruned: List<TraversalPrunedCandidate>,
+  val suggestedReads: List<TraversalSuggestedRead>,
+  val estimatedTokens: Int,
+)

@@ -8,6 +8,7 @@ import com.sermilion.personalgraph.data.retrieval.PersonalGraphSessionStartRetri
 import com.sermilion.personalgraph.data.scaffold.PersonalGraphVaultScaffolder
 import com.sermilion.personalgraph.data.search.PersonalGraphBranchListingService
 import com.sermilion.personalgraph.data.search.PersonalGraphIndexFirstNodeSearchService
+import com.sermilion.personalgraph.data.search.PersonalGraphTraverseGraphService
 import com.sermilion.personalgraph.domain.capture.VaultCaptureService
 import com.sermilion.personalgraph.domain.repository.ConsolidationService
 import com.sermilion.personalgraph.domain.repository.GraphIndexInvalidator
@@ -17,6 +18,7 @@ import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalService
 import com.sermilion.personalgraph.domain.scaffold.VaultScaffolder
 import com.sermilion.personalgraph.domain.search.BranchListingService
 import com.sermilion.personalgraph.domain.search.NodeSearchService
+import com.sermilion.personalgraph.domain.search.TraverseGraphService
 import com.sermilion.personalgraph.domain.tokens.TokenEstimator
 import kotlinx.datetime.Clock
 import me.tatarka.inject.annotations.Provides
@@ -58,4 +60,7 @@ interface DataSearchComponent {
 
   @Provides
   fun provideBranchListingService(impl: PersonalGraphBranchListingService): BranchListingService = impl
+
+  @Provides
+  fun provideTraverseGraphService(impl: PersonalGraphTraverseGraphService): TraverseGraphService = impl
 }
