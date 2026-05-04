@@ -1,5 +1,15 @@
 # core/data — history
 
+## [2026-05-04] traversal-foundation (PG-6 subtask 1)
+Areas: core/domain (TraverseGraphService + TraverseGraphQuery/Outcome models), core/data (PersonalGraphTraverseGraphService + traversal helpers + DataSearchComponent binding)
+- `traverse_graph` foundation is domain/data only: request accepts query/startIds/branches/edgeTypes/maxDepth/maxNodes/budgetTokens/includeBodies/rankBy, result returns entrypoints, scored nodes, weighted/labeled edges, pruned, suggestedReads, and estimatedTokens; MCP parser/formatter wiring intentionally remains deferred.
+- Traversal uses warmed `GraphIndexRepository.listEntriesInBranch` as the policy/source-of-truth boundary: allowed entries are resolved from warmed branch entries, `VaultPolicy.isReadAllowed && !isIndexExcluded` gates branches/ids/links before output, and `people/` + `staging/sensitive/` never reach nodes/edges/pruned/suggested/token accounting.
+- Backlinks are derived from a one-pass reverse-link map over warmed index entries only when `Backlink` is requested and `maxDepth > 0`; avoid per-node `VaultRepository.listBacklinks` scans in retrieval hot paths.
+- Budgeting is edge-aware and body-aware: select metadata candidates first, hydrate bodies only for included nodes, then trim with endpoint-indexed edge costs so final `estimatedTokens` stays within `budgetTokens` without O(nodes*edges) rescans.
+- Detekt forced traversal helpers into focused support files (`TraverseGraphCandidateSupport`, `TraversalSelectionBuilder`, token/ranking/service support); keep future traversal growth split by concern instead of expanding the service class.
+Feature flag: N/A
+Acceptance criteria: 7/7 implemented
+
 ## [2026-05-03] search-and-list-branch-upgrade (PG-6 subtask 2 of 4)
 Areas: core/domain (NodeSearchService + BranchListingService contracts, SearchModels with SearchRankingTier + SearchRecency triggers), core/data (PersonalGraphIndexFirstNodeSearchService + PersonalGraphBranchListingService impls), mcp-server (search_nodes added end-to-end; list_branch extended with mode/filter/limit/include_links/include_body)
 - Index-first `search_nodes` consults `GraphIndexRepository` for id/path/alias/title/subject/topic/hypothesis tiers before any body decode; body fallback runs only when metadata matches are empty AND `body_fallback=true` AND `body` is in `search_fields` (default `[id,metadata,body]`); cold-branch caveat from subtask 1 handled by `effectiveBranches` warming via `listEntriesInBranch` before per-tier lookups (reusable: any future tool wanting metadata-only retrieval can compose this same warming pattern)
