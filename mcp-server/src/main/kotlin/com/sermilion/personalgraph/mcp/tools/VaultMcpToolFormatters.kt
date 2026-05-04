@@ -97,6 +97,11 @@ internal fun SessionStartRetrievalReport.toJson(): JsonObject = buildJsonObject 
       }
     },
   )
+  put(
+    ToolSchemas.KEY_SUGGESTED_ACTIONS,
+    buildJsonArray { for (action in suggestedActions) add(suggestedActionJson(action)) },
+  )
+  put(ToolSchemas.KEY_ESTIMATED_TOKENS, tokenAccountingJson(estimatedTokens))
   put(ToolSchemas.KEY_SKIPPED_BRANCHES, skippedBranchesJsonOf(skippedBranches))
   put(ToolSchemas.KEY_AUDIT, auditJsonOf(audit))
   put(ToolSchemas.KEY_AUDIT_ENTRIES, auditJsonOf(auditEntries))

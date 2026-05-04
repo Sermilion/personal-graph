@@ -1,5 +1,13 @@
 # core/data — history
 
+## [2026-05-04] session-start actions and token accounting (PG-6 subtask 3/4)
+Areas: core/data (session-start retrieval service + suggestion/token helpers), core/domain (session-start report contract), mcp-server (session_start formatter + schema descriptions), cli/docs
+- `session_start` now emits `suggested_actions` alongside `suggested_reads`; identifier-like prompts route to `search_nodes` first, while broader prompts also suggest `list_branch(mode=index)` before any full-body branch read (reusable search-first retrieval pattern)
+- Response token accounting is now surfaced as `estimated_tokens` with response_total/metadata/body/pruned_body counts, computed deterministically from the loaded contexts, map entries, actions, and audit trail (reusable for any future response-shaped retrieval surface)
+- CLI output and docs now explain the search-first path and SKILL-33-style example, keeping the default retrieval workflow aligned with the MCP contract
+Feature flag: N/A
+Acceptance criteria: pending final validation
+
 ## [2026-05-04] traversal-foundation (PG-6 subtask 1)
 Areas: core/domain (TraverseGraphService + TraverseGraphQuery/Outcome models), core/data (PersonalGraphTraverseGraphService + traversal helpers + DataSearchComponent binding)
 - `traverse_graph` foundation is domain/data only: request accepts query/startIds/branches/edgeTypes/maxDepth/maxNodes/budgetTokens/includeBodies/rankBy, result returns entrypoints, scored nodes, weighted/labeled edges, pruned, suggestedReads, and estimatedTokens; MCP parser/formatter wiring intentionally remains deferred.

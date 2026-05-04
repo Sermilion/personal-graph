@@ -9,6 +9,7 @@ import com.sermilion.personalgraph.domain.repository.WriteOutcome
 import com.sermilion.personalgraph.domain.retrieval.RetrievalDomain
 import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalMode
 import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalRequest
+import com.sermilion.personalgraph.domain.retrieval.SuggestedActionValue
 import com.sermilion.personalgraph.testing.NoOpGraphIndexInvalidator
 import com.sermilion.personalgraph.testing.TestDispatcherProvider
 import com.sermilion.personalgraph.testing.VaultNodeFixtures
@@ -80,6 +81,14 @@ class PersonalGraphSessionStartRetrievalServiceTest :
       report.availableMap.map { it.id } shouldContain "patterns/review-shape"
       report.availableMap.first { it.id == "patterns/review-shape" }.reason shouldContain "wikilinked pattern"
       report.suggestedReads.map { it.id } shouldContain "domains/work/capmo/events/review"
+      report.suggestedActions.map { it.tool } shouldContainExactly listOf("search_nodes", "list_branch")
+      val queryArg = report.suggestedActions.first()
+        .args.first { it.key == "query" }
+        .value
+      (queryArg as SuggestedActionValue.StringValue).value shouldContain "Capmo work please"
+      report.estimatedTokens.responseTotal shouldBe
+        report.estimatedTokens.metadataTokens + report.estimatedTokens.bodyTokens
+      (report.estimatedTokens.responseTotal > 0) shouldBe true
       report.auditEntries shouldBe report.audit
       report.audit.map { it.action } shouldContain "loaded_pattern"
     }

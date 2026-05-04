@@ -1,6 +1,6 @@
 # PG-6 Subtask 3 - traverse_graph scoring and session_start suggested_actions
 
-- **Status:** Planned
+- **Status:** Complete
 - **Issue key:** PG-6
 - **Subtask:** 3 of 4
 - **Sources:** [parent spec](./spec.md)

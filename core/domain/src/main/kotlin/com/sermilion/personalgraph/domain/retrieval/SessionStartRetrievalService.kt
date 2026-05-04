@@ -20,6 +20,8 @@ data class SessionStartRetrievalReport(
   val loadedContext: List<LoadedFullBodyContext> = emptyList(),
   val availableMap: List<CompactMapEntry> = emptyList(),
   val suggestedReads: List<SuggestedRead> = emptyList(),
+  val suggestedActions: List<SuggestedAction> = emptyList(),
+  val estimatedTokens: SessionStartTokenAccounting = SessionStartTokenAccounting(),
   val skippedBranches: List<SkippedBranch> = emptyList(),
   val audit: List<RetrievalAuditEntry> = emptyList(),
   val loadedBranches: List<RetrievedBranch> = emptyList(),
@@ -124,6 +126,38 @@ enum class SuggestedReadPriority(val value: String) {
   Medium("medium"),
   Low("low"),
 }
+
+data class SuggestedAction(
+  val tool: String,
+  val args: List<SuggestedActionArg> = emptyList(),
+  val reason: String,
+  val priority: SuggestedActionPriority = SuggestedActionPriority.Medium,
+)
+
+data class SuggestedActionArg(
+  val key: String,
+  val value: SuggestedActionValue,
+)
+
+sealed interface SuggestedActionValue {
+  data class StringValue(val value: String) : SuggestedActionValue
+  data class BooleanValue(val value: Boolean) : SuggestedActionValue
+  data class IntValue(val value: Int) : SuggestedActionValue
+  data class StringListValue(val value: List<String>) : SuggestedActionValue
+}
+
+enum class SuggestedActionPriority(val value: String) {
+  High("high"),
+  Medium("medium"),
+  Low("low"),
+}
+
+data class SessionStartTokenAccounting(
+  val responseTotal: Int = 0,
+  val metadataTokens: Int = 0,
+  val bodyTokens: Int = 0,
+  val prunedBodyTokens: Int = 0,
+)
 
 data class SkippedBranch(
   val branch: String,

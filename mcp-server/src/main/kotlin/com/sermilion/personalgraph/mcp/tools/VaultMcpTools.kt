@@ -7,9 +7,6 @@ import com.sermilion.personalgraph.domain.layout.VaultLayout
 import com.sermilion.personalgraph.domain.layout.VaultPolicy
 import com.sermilion.personalgraph.domain.model.NodeId
 import com.sermilion.personalgraph.domain.repository.VaultRepository
-import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalService
-import com.sermilion.personalgraph.domain.search.BranchListingService
-import com.sermilion.personalgraph.domain.search.NodeSearchService
 import com.sermilion.personalgraph.domain.search.SearchQuery
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -26,9 +23,7 @@ class VaultMcpTools(
   private val pathResolver: VaultPathResolver,
   private val vaultRoot: Path,
   private val captureService: VaultCaptureService,
-  private val sessionStartRetrievalService: SessionStartRetrievalService,
-  private val nodeSearchService: NodeSearchService,
-  private val branchListingService: BranchListingService,
+  private val readServices: VaultMcpReadServices,
 ) {
 
   suspend fun writeState(args: JsonObject): JsonObject = when (val parsed = parseWriteStateArgs(args)) {
@@ -96,15 +91,20 @@ class VaultMcpTools(
     is Parsed.Success -> searchNodesGated(parsed.value)
   }
 
+  suspend fun traverseGraph(args: JsonObject): JsonObject = when (val parsed = parseTraverseGraphArgs(args)) {
+    is Parsed.Failure -> parsed.json
+    is Parsed.Success -> readServices.traverseGraphService.traverse(parsed.value.toTraverseGraphQuery()).toJson()
+  }
+
   suspend fun sessionStart(args: JsonObject): JsonObject = when (val parsed = parseSessionStartRetrievalRequest(args)) {
     is Parsed.Failure -> parsed.json
-    is Parsed.Success -> sessionStartRetrievalService.retrieve(parsed.value).toJson()
+    is Parsed.Success -> readServices.sessionStartRetrievalService.retrieve(parsed.value).toJson()
   }
 
   private suspend fun searchNodesGated(query: SearchQuery): JsonObject {
     val gate = searchNodesGate(query.branches)
     if (gate != null) return gate
-    return searchNodesResultJson(nodeSearchService.search(query))
+    return searchNodesResultJson(readServices.nodeSearchService.search(query))
   }
 
   private fun searchNodesGate(requestedBranches: List<String>): JsonObject? {
@@ -118,7 +118,7 @@ class VaultMcpTools(
   private suspend fun dispatchListBranch(request: ListBranchArgs): JsonObject {
     val gate = listBranchGate(request.branch)
     if (gate != null) return gate
-    val outcome = branchListingService.list(request.toBranchListQuery())
+    val outcome = readServices.branchListingService.list(request.toBranchListQuery())
     return formatBranchListOutcome(request, outcome)
   }
 

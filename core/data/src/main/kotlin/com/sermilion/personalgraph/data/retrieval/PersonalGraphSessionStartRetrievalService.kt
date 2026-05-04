@@ -22,6 +22,7 @@ import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalMode
 import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalReport
 import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalRequest
 import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalService
+import com.sermilion.personalgraph.domain.retrieval.SessionStartTokenAccounting
 import com.sermilion.personalgraph.domain.retrieval.SkippedBranch
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.withContext
@@ -85,14 +86,17 @@ class PersonalGraphSessionStartRetrievalService(
     val loadedContext = loadedContext(rootDocument, loadedNodes, request.retrievalMode, audit)
     val availableMap = availableMap(loadedBranches, loadedNodes, classification)
     val suggestedReads = suggestedReads(availableMap, classification, audit)
+    val suggestedActions = suggestedActions(request.firstSubstantiveMessage, classification, loadedBranches, audit)
     audit.add(retrievalModeAudit(request.retrievalMode))
 
-    SessionStartRetrievalReport(
+    val report = SessionStartRetrievalReport(
       rootDocument = rootDocument,
       classification = classification,
       loadedContext = loadedContext,
       availableMap = availableMap,
       suggestedReads = suggestedReads,
+      suggestedActions = suggestedActions,
+      estimatedTokens = SessionStartTokenAccounting(),
       skippedBranches = skippedBranches.distinctBy { it.branch },
       audit = audit,
       loadedBranches = loadedBranches,
@@ -101,6 +105,7 @@ class PersonalGraphSessionStartRetrievalService(
       compactMapEntries = availableMap,
       auditEntries = audit,
     )
+    report.copy(estimatedTokens = estimatedTokens(report))
   }
 
   private fun classify(message: String): RetrievalClassification {
