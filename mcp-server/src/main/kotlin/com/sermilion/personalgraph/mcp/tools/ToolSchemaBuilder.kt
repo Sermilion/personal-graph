@@ -1,7 +1,30 @@
 package com.sermilion.personalgraph.mcp.tools
 
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+
+private fun integerSchema(description: String? = null): JsonObject = buildJsonObject {
+  put("type", JsonPrimitive("integer"))
+  if (description != null) put("description", JsonPrimitive(description))
+}
+
+private fun stringEnumArraySchema(values: List<String>, description: String? = null): JsonObject = buildJsonObject {
+  put("type", JsonPrimitive("array"))
+  put(
+    "items",
+    buildJsonObject {
+      put("type", JsonPrimitive("string"))
+      put(
+        "enum",
+        buildJsonArray { for (value in values) add(JsonPrimitive(value)) },
+      )
+    },
+  )
+  if (description != null) put("description", JsonPrimitive(description))
+}
 
 internal object ToolSchemaBuilder {
 
@@ -122,8 +145,31 @@ internal object ToolSchemaBuilder {
   fun listBranchSchema(): ToolSchema = ToolSchema(
     properties = buildJsonObject {
       put(ToolSchemas.KEY_BRANCH, ToolSchemaProperties.string(ToolSchemas.DESC_FIELD_BRANCH))
+      put(
+        ToolSchemas.KEY_MODE,
+        ToolSchemaProperties.enum(ToolSchemas.ENUM_LIST_MODES, ToolSchemas.DESC_FIELD_LIST_MODE),
+      )
+      put(ToolSchemas.KEY_FILTER, ToolSchemaProperties.string(ToolSchemas.DESC_FIELD_LIST_FILTER))
+      put(ToolSchemas.KEY_LIMIT, integerSchema(ToolSchemas.DESC_FIELD_LIST_LIMIT))
+      put(ToolSchemas.KEY_INCLUDE_LINKS, ToolSchemaProperties.boolean(ToolSchemas.DESC_FIELD_INCLUDE_LINKS))
+      put(ToolSchemas.KEY_INCLUDE_BODY, ToolSchemaProperties.boolean(ToolSchemas.DESC_FIELD_INCLUDE_BODY))
     },
     required = listOf(ToolSchemas.KEY_BRANCH),
+  )
+
+  fun searchNodesSchema(): ToolSchema = ToolSchema(
+    properties = buildJsonObject {
+      put(ToolSchemas.KEY_QUERY, ToolSchemaProperties.string(ToolSchemas.DESC_FIELD_SEARCH_QUERY))
+      put(ToolSchemas.KEY_BRANCHES, ToolSchemaProperties.stringArray(ToolSchemas.DESC_FIELD_SEARCH_BRANCHES))
+      put(ToolSchemas.KEY_LIMIT, integerSchema(ToolSchemas.DESC_FIELD_SEARCH_LIMIT))
+      put(
+        ToolSchemas.KEY_SEARCH_FIELDS,
+        stringEnumArraySchema(ToolSchemas.ENUM_SEARCH_FIELDS, ToolSchemas.DESC_FIELD_SEARCH_FIELDS),
+      )
+      put(ToolSchemas.KEY_BODY_FALLBACK, ToolSchemaProperties.boolean(ToolSchemas.DESC_FIELD_BODY_FALLBACK))
+      put(ToolSchemas.KEY_INCLUDE_BODY, ToolSchemaProperties.boolean(ToolSchemas.DESC_FIELD_SEARCH_INCLUDE_BODY))
+    },
+    required = listOf(ToolSchemas.KEY_QUERY),
   )
 
   fun sessionStartSchema(): ToolSchema = ToolSchema(

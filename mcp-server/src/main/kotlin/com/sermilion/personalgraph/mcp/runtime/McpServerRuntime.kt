@@ -106,6 +106,11 @@ object McpServerRuntime {
       inputSchema = ToolSchemaBuilder.listBranchSchema(),
     ) { request -> tools.listBranch(request.arguments ?: emptyJsonObject).asResult() }
     server.addTool(
+      name = ToolSchemas.TOOL_SEARCH_NODES,
+      description = ToolSchemas.DESC_SEARCH_NODES,
+      inputSchema = ToolSchemaBuilder.searchNodesSchema(),
+    ) { request -> tools.searchNodes(request.arguments ?: emptyJsonObject).asResult() }
+    server.addTool(
       name = ToolSchemas.TOOL_SESSION_START,
       description = ToolSchemas.DESC_SESSION_START,
       inputSchema = ToolSchemaBuilder.sessionStartSchema(),
