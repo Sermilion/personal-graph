@@ -18,6 +18,11 @@ import com.sermilion.personalgraph.domain.model.NodeId
 interface GraphIndexRepository {
   suspend fun listEntriesInBranch(branchPath: String): List<GraphIndexEntry>
 
+  suspend fun listEntriesInBranch(
+    branchPath: String,
+    query: GraphIndexBranchQuery,
+  ): List<GraphIndexEntry> = listEntriesInBranch(branchPath).take(query.limit)
+
   suspend fun findEntry(id: NodeId): GraphIndexEntry?
 
   suspend fun findEntryByAlias(alias: String): GraphIndexEntry?
@@ -25,4 +30,13 @@ interface GraphIndexRepository {
   suspend fun findEntryByTitle(title: String): GraphIndexEntry?
 
   suspend fun findEntryByPath(path: String): GraphIndexEntry?
+}
+
+data class GraphIndexBranchQuery(
+  val limit: Int,
+  val preferredRelativePrefixes: List<String> = emptyList(),
+) {
+  init {
+    require(limit >= 0) { "limit must be non-negative" }
+  }
 }

@@ -102,7 +102,7 @@ private fun RetrievedNode.toLoadedContext(): LoadedFullBodyContext = LoadedFullB
   reason = reason,
 )
 
-private fun RetrievedBranch.toMapEntry(): CompactMapEntry = CompactMapEntry(
+internal fun RetrievedBranch.toMapEntry(): CompactMapEntry = CompactMapEntry(
   id = branch,
   kind = CompactMapEntryKind.Branch,
   reason = reason,
@@ -134,6 +134,3 @@ private fun RetrievedNode.toMapEntry(): CompactMapEntry {
 private fun RetrievedNode.safeMapLinks(): List<String> = (links + patternLinks)
   .distinct()
   .filterNot { it.isDefaultBlockedMapLink() }
-
-private fun String.isDefaultBlockedMapLink(): Boolean = startsWith("${VaultLayout.BRANCH_PEOPLE}/") ||
-  startsWith("${VaultLayout.BRANCH_STAGING}/")

@@ -9,8 +9,8 @@ import com.sermilion.personalgraph.domain.retrieval.SuggestedReadPriority
 private const val SCORE_DOMAIN_SUBJECT: Int = 100
 private const val SCORE_DOMAIN_SCOPED_STATE: Int = 90
 private const val SCORE_MULTI_DOMAIN_SCOPED_STATE: Int = 85
-private const val SCORE_GLOBAL_PREFERENCE: Int = 70
-private const val SCORE_DOMAIN_EVENT: Int = 50
+private const val SCORE_DOMAIN_EVENT: Int = 75
+private const val SCORE_GLOBAL_PREFERENCE: Int = 65
 private const val SCORE_PATTERN: Int = 35
 private const val SCORE_STATE: Int = 30
 private const val SCORE_DEFAULT: Int = 10

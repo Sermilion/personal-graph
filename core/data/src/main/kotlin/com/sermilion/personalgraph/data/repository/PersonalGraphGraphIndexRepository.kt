@@ -13,9 +13,11 @@ import com.sermilion.personalgraph.domain.model.PatternNode
 import com.sermilion.personalgraph.domain.model.StateNode
 import com.sermilion.personalgraph.domain.model.SubjectNode
 import com.sermilion.personalgraph.domain.model.VaultNode
+import com.sermilion.personalgraph.domain.repository.GraphIndexBranchQuery
 import com.sermilion.personalgraph.domain.repository.GraphIndexInvalidator
 import com.sermilion.personalgraph.domain.repository.GraphIndexRepository
 import com.sermilion.personalgraph.domain.tokens.TokenEstimator
+import io.github.oshai.kotlinlogging.KLogger
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -25,6 +27,7 @@ import me.tatarka.inject.annotations.Inject
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.PriorityQueue
 import java.util.concurrent.ConcurrentHashMap
 
 @AppScope
@@ -49,12 +52,18 @@ class PersonalGraphGraphIndexRepository(
 
   override suspend fun listEntriesInBranch(
     branchPath: String,
+  ): List<GraphIndexEntry> = listEntriesInBranch(branchPath, GraphIndexBranchQuery(limit = MAX_INDEX_RESULTS))
+
+  override suspend fun listEntriesInBranch(
+    branchPath: String,
+    query: GraphIndexBranchQuery,
   ): List<GraphIndexEntry> = withContext(dispatcherProvider.io) {
     val normalized = branchPath.trim('/')
+    if (query.limit <= 0) return@withContext emptyList()
     val branchDir = resolveBranchDirOrNull(normalized) ?: return@withContext emptyList()
     refreshBranchIfChanged(normalized, branchDir)
     try {
-      walkBranch(normalized, branchDir).sortedBy { it.id.value }
+      walkBranch(normalized, branchDir, query).sortedBy { it.id.value }
     } catch (e: IOException) {
       logger.warn(e) { "listEntriesInBranch failed for branchPath=$normalized" }
       emptyList()
@@ -130,16 +139,31 @@ class PersonalGraphGraphIndexRepository(
     return if (resolvable) branchDir else null
   }
 
-  private suspend fun walkBranch(normalized: String, branchDir: Path): List<GraphIndexEntry> {
+  private suspend fun walkBranch(
+    normalized: String,
+    branchDir: Path,
+    query: GraphIndexBranchQuery,
+  ): List<GraphIndexEntry> {
+    val candidateFiles = if (query.preferredRelativePrefixes.isEmpty()) {
+      walkBranchFilesUntilLimit(vaultRoot, pathResolver, normalized, branchDir, query.limit, MAX_INDEX_DEPTH)
+    } else {
+      topBranchFilesByPathPriority(
+        vaultRoot = vaultRoot,
+        pathResolver = pathResolver,
+        normalized = normalized,
+        branchDir = branchDir,
+        query = query,
+        maxDepth = MAX_INDEX_DEPTH,
+        maxIndexResults = MAX_INDEX_RESULTS,
+      )
+    }
     val results = mutableListOf<GraphIndexEntry>()
-    Files.walk(branchDir, MAX_INDEX_DEPTH).use { stream ->
-      val iter = stream.iterator()
-      while (iter.hasNext() && results.size < MAX_INDEX_RESULTS) {
-        currentCoroutineContext().ensureActive()
-        buildOrCacheFromFile(iter.next())
-          ?.takeIf { it.branch == normalized || it.branch.startsWith("$normalized/") }
-          ?.let(results::add)
-      }
+    for (file in candidateFiles) {
+      currentCoroutineContext().ensureActive()
+      if (results.size >= query.limit) break
+      buildOrCacheFromFile(file)
+        ?.takeIf { it.branch == normalized || it.branch.startsWith("$normalized/") }
+        ?.let(results::add)
     }
     return results
   }
@@ -153,7 +177,7 @@ class PersonalGraphGraphIndexRepository(
   }
 
   private fun refreshBranchIfChanged(normalizedBranch: String, branchDir: Path) {
-    val currentMtime = readMtimeOrNull(branchDir) ?: return
+    val currentMtime = readMtimeOrNull(branchDir, logger) ?: return
     val previous = branchRootMtime[normalizedBranch]
     if (previous == null || previous != currentMtime) {
       val toDrop = cache.entries.filter {
@@ -166,16 +190,6 @@ class PersonalGraphGraphIndexRepository(
       }
       branchRootMtime[normalizedBranch] = currentMtime
     }
-  }
-
-  private fun readMtimeOrNull(target: Path): Long? = try {
-    Files.getLastModifiedTime(target).toMillis()
-  } catch (e: IOException) {
-    logger.debug(e) { "mtime read failed for target=$target" }
-    null
-  } catch (e: SecurityException) {
-    logger.debug(e) { "mtime read denied for target=$target" }
-    null
   }
 
   private fun buildOrCacheFromFile(file: Path): GraphIndexEntry? {
@@ -196,15 +210,8 @@ class PersonalGraphGraphIndexRepository(
   }
 
   private fun eligibleNodeIdOrNull(file: Path): NodeId? {
-    val isMarkdownRegularFile = !Files.isSymbolicLink(file) &&
-      Files.isRegularFile(file) &&
-      file.fileName?.toString().orEmpty().endsWith(MARKDOWN_SUFFIX)
-    if (!isMarkdownRegularFile) return null
-    return pathResolver.relativize(vaultRoot, file)?.takeIf {
-      !VaultPolicy.isIndexExcluded(it.value) &&
-        !VaultPolicy.isReadBlocked(it.value) &&
-        VaultPolicy.isReadAllowed(it.value)
-    }
+    val nodeId = eligibleNodeIdUnder(vaultRoot, pathResolver, file, "")
+    return nodeId?.takeIf { it.value.isNotBlank() }
   }
 
   private fun statOrNull(file: Path): FileStat? {
@@ -242,11 +249,7 @@ class PersonalGraphGraphIndexRepository(
       VaultPolicy.isIndexExcluded(link.value) || VaultPolicy.isReadBlocked(link.value)
     }
     val previewBody = node.body
-    val snippet = previewBody.lineSequence()
-      .firstOrNull { it.isNotBlank() }
-      .orEmpty()
-      .trim()
-      .take(MAX_SNIPPET_LENGTH)
+    val snippet = firstMeaningfulPreviewLine(previewBody).take(MAX_SNIPPET_LENGTH)
     val typeName = when (node) {
       is StateNode -> "state"
       is EpisodeNode -> "episode"
@@ -326,7 +329,6 @@ class PersonalGraphGraphIndexRepository(
   private data class FileStat(val size: Long, val mtime: Long)
 
   companion object {
-    private const val MARKDOWN_SUFFIX: String = ".md"
     private const val MAX_INDEX_DEPTH: Int = 8
     private const val MAX_INDEX_RESULTS: Int = 1000
     private const val MAX_INDEX_FILE_SIZE_BYTES: Long = 1L * 1024L * 1024L
@@ -334,3 +336,131 @@ class PersonalGraphGraphIndexRepository(
     private const val MAX_SNIPPET_LENGTH: Int = 200
   }
 }
+
+private suspend fun walkBranchFilesUntilLimit(
+  vaultRoot: Path,
+  pathResolver: VaultPathResolver,
+  normalized: String,
+  branchDir: Path,
+  limit: Int,
+  maxDepth: Int,
+): List<Path> {
+  val results = mutableListOf<Path>()
+  Files.walk(branchDir, maxDepth).use { stream ->
+    val iter = stream.iterator()
+    while (iter.hasNext() && results.size < limit) {
+      currentCoroutineContext().ensureActive()
+      val file = iter.next()
+      if (isEligibleMarkdownFileUnder(vaultRoot, pathResolver, file, normalized)) results.add(file)
+    }
+  }
+  return results
+}
+
+private suspend fun topBranchFilesByPathPriority(
+  vaultRoot: Path,
+  pathResolver: VaultPathResolver,
+  normalized: String,
+  branchDir: Path,
+  query: GraphIndexBranchQuery,
+  maxDepth: Int,
+  maxIndexResults: Int,
+): List<Path> {
+  val candidateLimit = (query.limit * PATH_CANDIDATE_MULTIPLIER)
+    .coerceAtLeast(query.limit)
+    .coerceAtMost(maxIndexResults)
+  val selected = PriorityQueue<RankedFile>(WORST_RANKED_FILE_FIRST)
+  Files.walk(branchDir, maxDepth).use { stream ->
+    val iter = stream.iterator()
+    while (iter.hasNext()) {
+      currentCoroutineContext().ensureActive()
+      val file = iter.next()
+      val id = eligibleNodeIdUnder(vaultRoot, pathResolver, file, normalized) ?: continue
+      val candidate = RankedFile(
+        file = file,
+        id = id.value,
+        priority = id.relativePriority(normalized, query.preferredRelativePrefixes),
+      )
+      if (selected.size < candidateLimit) {
+        selected.add(candidate)
+      } else if (candidate.isBetterThan(selected.peek())) {
+        selected.poll()
+        selected.add(candidate)
+      }
+    }
+  }
+  return selected.sortedWith(BEST_RANKED_FILE_FIRST).map { it.file }
+}
+
+private fun isEligibleMarkdownFileUnder(
+  vaultRoot: Path,
+  pathResolver: VaultPathResolver,
+  file: Path,
+  normalized: String,
+): Boolean = eligibleNodeIdUnder(vaultRoot, pathResolver, file, normalized) != null
+
+private fun eligibleNodeIdUnder(
+  vaultRoot: Path,
+  pathResolver: VaultPathResolver,
+  file: Path,
+  normalized: String,
+): NodeId? {
+  val isMarkdownRegularFile = !Files.isSymbolicLink(file) &&
+    Files.isRegularFile(file) &&
+    file.fileName?.toString().orEmpty().endsWith(MARKDOWN_SUFFIX)
+  if (!isMarkdownRegularFile) return null
+  return pathResolver.relativize(vaultRoot, file)?.takeIf { id ->
+    (normalized.isBlank() || id.value == normalized || id.value.startsWith("$normalized/")) &&
+      !VaultPolicy.isIndexExcluded(id.value) &&
+      !VaultPolicy.isReadBlocked(id.value) &&
+      VaultPolicy.isReadAllowed(id.value)
+  }
+}
+
+private fun NodeId.relativePriority(
+  normalized: String,
+  preferredRelativePrefixes: List<String>,
+): Int {
+  val relative = value.removePrefix(normalized).trimStart('/')
+  val preferredIndex = preferredRelativePrefixes.indexOfFirst { prefix ->
+    relative == prefix || relative.startsWith("$prefix/")
+  }
+  return if (preferredIndex >= 0) preferredIndex else preferredRelativePrefixes.size
+}
+
+private data class RankedFile(
+  val file: Path,
+  val id: String,
+  val priority: Int,
+) {
+  fun isBetterThan(other: RankedFile): Boolean = hasBetterPriorityThan(other) || hasSamePriorityAndLowerIdThan(other)
+
+  private fun hasBetterPriorityThan(other: RankedFile): Boolean = priority < other.priority
+
+  private fun hasSamePriorityAndLowerIdThan(other: RankedFile): Boolean = priority == other.priority && id < other.id
+}
+
+private const val PATH_CANDIDATE_MULTIPLIER: Int = 4
+private const val MARKDOWN_SUFFIX: String = ".md"
+
+private val BEST_RANKED_FILE_FIRST: Comparator<RankedFile> =
+  compareBy<RankedFile> { it.priority }.thenBy { it.id }
+
+private val WORST_RANKED_FILE_FIRST: Comparator<RankedFile> =
+  compareByDescending<RankedFile> { it.priority }.thenByDescending { it.id }
+
+private fun readMtimeOrNull(target: Path, logger: KLogger): Long? = try {
+  Files.getLastModifiedTime(target).toMillis()
+} catch (e: IOException) {
+  logger.debug(e) { "mtime read failed for target=$target" }
+  null
+} catch (e: SecurityException) {
+  logger.debug(e) { "mtime read denied for target=$target" }
+  null
+}
+
+private fun firstMeaningfulPreviewLine(body: String): String = body.lineSequence()
+  .map { it.trim() }
+  .filter { it.isNotBlank() }
+  .firstOrNull { !it.startsWith("#") }
+  .orEmpty()

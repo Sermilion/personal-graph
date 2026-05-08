@@ -11,7 +11,10 @@ import com.sermilion.personalgraph.domain.model.PatternNode
 import com.sermilion.personalgraph.domain.model.StateNode
 import com.sermilion.personalgraph.domain.model.SubjectNode
 import com.sermilion.personalgraph.domain.model.VaultNode
+import com.sermilion.personalgraph.domain.repository.GraphIndexBranchQuery
+import com.sermilion.personalgraph.domain.repository.GraphIndexRepository
 import com.sermilion.personalgraph.domain.repository.VaultRepository
+import com.sermilion.personalgraph.domain.retrieval.CompactMapEntry
 import com.sermilion.personalgraph.domain.retrieval.RetrievalAuditEntry
 import com.sermilion.personalgraph.domain.retrieval.RetrievalClassification
 import com.sermilion.personalgraph.domain.retrieval.RetrievalDomain
@@ -36,6 +39,7 @@ import java.nio.file.Path
 class PersonalGraphSessionStartRetrievalService(
   private val vaultRoot: Path,
   private val repository: VaultRepository,
+  private val graphIndexRepository: GraphIndexRepository,
   private val pathResolver: VaultPathResolver,
   private val dispatcherProvider: DispatcherProvider,
 ) : SessionStartRetrievalService {
@@ -48,7 +52,6 @@ class PersonalGraphSessionStartRetrievalService(
     val audit = mutableListOf<RetrievalAuditEntry>()
     val loadedBranches = mutableListOf<RetrievedBranch>()
     val skippedBranches = mutableListOf<SkippedBranch>()
-    val loadedNodes = mutableListOf<RetrievedNode>()
     var loadOrder = 0
 
     val classification = classify(request.firstSubstantiveMessage)
@@ -61,30 +64,21 @@ class PersonalGraphSessionStartRetrievalService(
     )
 
     val rootDocument = loadBraian(++loadOrder, audit)
-    val branchPlan = branchPlanFor(classification)
+    val branchPlan = branchPlanFor(classification, request.retrievalMode)
     addDefaultSkips(classification, skippedBranches, audit)
 
-    val seedNodes = mutableListOf<VaultNode>()
-    for ((branch, reason) in branchPlan) {
-      val nodes = loadBranch(branch, reason, classification, loadedBranches, skippedBranches, audit)
-      seedNodes.addAll(nodes)
-      for (node in nodes.sortedBy { it.id.value }) {
-        loadedNodes.add(node.toRetrievedNode(++loadOrder, reason))
-      }
-    }
-
-    val patternNodes = loadLinkedPatterns(seedNodes, audit)
-    for (node in patternNodes.sortedBy { it.id.value }) {
-      loadedNodes.add(
-        node.toRetrievedNode(
-          loadOrder = ++loadOrder,
-          reason = "wikilinked pattern hub from loaded retrieval context",
-        ),
-      )
-    }
-
+    val branchMap = loadBranchMap(
+      branchPlan = branchPlan,
+      classification = classification,
+      retrievalMode = request.retrievalMode,
+      initialLoadOrder = loadOrder,
+      loadedBranches = loadedBranches,
+      skippedBranches = skippedBranches,
+      audit = audit,
+    )
+    val loadedNodes = branchMap.loadedNodes
+    val availableMap = branchMap.availableMap
     val loadedContext = loadedContext(rootDocument, loadedNodes, request.retrievalMode, audit)
-    val availableMap = availableMap(loadedBranches, loadedNodes, classification)
     val suggestedReads = suggestedReads(availableMap, classification, audit)
     val suggestedActions = suggestedActions(request.firstSubstantiveMessage, classification, loadedBranches, audit)
     audit.add(retrievalModeAudit(request.retrievalMode))
@@ -108,71 +102,69 @@ class PersonalGraphSessionStartRetrievalService(
     report.copy(estimatedTokens = estimatedTokens(report))
   }
 
-  private fun classify(message: String): RetrievalClassification {
-    val capmoMatches = matchedTerms(message, WORK_CAPMO_TERMS)
-    val skillBillMatches = matchedTerms(message, WORK_SKILL_BILL_TERMS)
-    val readianMatches = matchedTerms(message, WORK_READIAN_TERMS)
-    val contextAppMatches = matchedTerms(message, WORK_CONTEXT_APP_TERMS)
-    val personalMatches = matchedTerms(message, PERSONAL_TERMS)
-    val creativeMusicMatches = matchedTerms(message, CREATIVE_MUSIC_TERMS)
-    val emotionalMatches = matchedTerms(message, EMOTIONAL_TERMS)
-    val candidates = listOf(
-      RetrievalDomain.WorkCapmo to capmoMatches,
-      RetrievalDomain.WorkSkillBill to skillBillMatches,
-      RetrievalDomain.WorkReadian to readianMatches,
-      RetrievalDomain.WorkContextApp to contextAppMatches,
-      RetrievalDomain.Personal to personalMatches,
-      RetrievalDomain.CreativeMusic to creativeMusicMatches,
-    )
-    val bestDomain = candidates
-      .filter { it.second.isNotEmpty() }
-      .maxByOrNull { it.second.size }
-      ?.first
-    val domain = bestDomain ?: RetrievalDomain.General
-    return RetrievalClassification(
-      domain = domain,
-      matchedTerms = when (domain) {
-        RetrievalDomain.WorkCapmo -> capmoMatches
-        RetrievalDomain.WorkSkillBill -> skillBillMatches
-        RetrievalDomain.WorkReadian -> readianMatches
-        RetrievalDomain.WorkContextApp -> contextAppMatches
-        RetrievalDomain.Personal -> personalMatches
-        RetrievalDomain.CreativeMusic -> creativeMusicMatches
-        RetrievalDomain.General -> emptyList()
-      },
-      emotionalContextRequested = emotionalMatches.isNotEmpty(),
-      emotionalMatchedTerms = emotionalMatches,
+  private suspend fun loadBranchMap(
+    branchPlan: List<Pair<String, String>>,
+    classification: RetrievalClassification,
+    retrievalMode: SessionStartRetrievalMode,
+    initialLoadOrder: Int,
+    loadedBranches: MutableList<RetrievedBranch>,
+    skippedBranches: MutableList<SkippedBranch>,
+    audit: MutableList<RetrievalAuditEntry>,
+  ): BranchMapResult = if (retrievalMode == SessionStartRetrievalMode.MapFirst) {
+    loadMapFirstBranchMap(branchPlan, classification, loadedBranches, skippedBranches, audit)
+  } else {
+    loadFullBranchMap(branchPlan, classification, initialLoadOrder, loadedBranches, skippedBranches, audit)
+  }
+
+  private suspend fun loadMapFirstBranchMap(
+    branchPlan: List<Pair<String, String>>,
+    classification: RetrievalClassification,
+    loadedBranches: MutableList<RetrievedBranch>,
+    skippedBranches: MutableList<SkippedBranch>,
+    audit: MutableList<RetrievalAuditEntry>,
+  ): BranchMapResult {
+    val indexEntries = mutableListOf<SessionStartIndexMapEntry>()
+    for ((branch, reason) in branchPlan) {
+      indexEntries.addAll(loadIndexBranch(branch, reason, classification, loadedBranches, skippedBranches, audit))
+    }
+    return BranchMapResult(
+      availableMap = availableMapFromIndex(loadedBranches, indexEntries, classification),
+      loadedNodes = emptyList(),
     )
   }
 
-  private fun matchedTerms(message: String, terms: List<String>): List<String> = terms
-    .filter { term -> containsTerm(message, term) }
-
-  private fun containsTerm(message: String, term: String): Boolean {
-    val escaped = Regex.escape(term)
-    return Regex("""(?i)(?<![a-z0-9_-])$escaped(?![a-z0-9_-])""").containsMatchIn(message)
+  private suspend fun loadFullBranchMap(
+    branchPlan: List<Pair<String, String>>,
+    classification: RetrievalClassification,
+    initialLoadOrder: Int,
+    loadedBranches: MutableList<RetrievedBranch>,
+    skippedBranches: MutableList<SkippedBranch>,
+    audit: MutableList<RetrievalAuditEntry>,
+  ): BranchMapResult {
+    var loadOrder = initialLoadOrder
+    val seedNodes = mutableListOf<VaultNode>()
+    val loadedNodes = mutableListOf<RetrievedNode>()
+    for ((branch, reason) in branchPlan) {
+      val nodes = loadBranch(branch, reason, classification, loadedBranches, skippedBranches, audit)
+      seedNodes.addAll(nodes)
+      nodes.sortedBy { it.id.value }.mapTo(loadedNodes) { node ->
+        node.toRetrievedNode(++loadOrder, reason)
+      }
+    }
+    loadLinkedPatterns(seedNodes, audit).sortedBy { it.id.value }.mapTo(loadedNodes) { node ->
+      node.toRetrievedNode(++loadOrder, "wikilinked pattern hub from loaded retrieval context")
+    }
+    return BranchMapResult(
+      availableMap = availableMap(loadedBranches, loadedNodes, classification),
+      loadedNodes = loadedNodes,
+    )
   }
 
-  private fun classificationReason(classification: RetrievalClassification): String {
-    val domainReason = if (classification.matchedTerms.isEmpty()) {
-      "no domain-specific terms matched; using durable general context"
-    } else {
-      "matched terms: ${classification.matchedTerms.joinToString(",")}"
-    }
-    val emotionalReason = if (classification.emotionalContextRequested) {
-      "; emotional context requested by: ${classification.emotionalMatchedTerms.joinToString(",")}"
-    } else {
-      "; emotional-states skipped because no emotional/self-reflection term matched"
-    }
-    return domainReason + emotionalReason
-  }
-
-  private fun branchPlanFor(classification: RetrievalClassification): List<Pair<String, String>> {
-    val knowledgeBranch = if (classification.domain == RetrievalDomain.General) {
-      listOf(VaultLayout.BRANCH_STATE_KNOWLEDGE to REASON_KNOWLEDGE_GENERAL)
-    } else {
-      emptyList()
-    }
+  private fun branchPlanFor(
+    classification: RetrievalClassification,
+    retrievalMode: SessionStartRetrievalMode,
+  ): List<Pair<String, String>> {
+    val durableStateBranches = durableStateBranchesFor(classification, retrievalMode)
     val domainBranches = when (classification.domain) {
       RetrievalDomain.WorkCapmo -> listOf(
         "${VaultLayout.BRANCH_DOMAINS}/work/capmo" to REASON_DOMAIN_WORK_CAPMO,
@@ -199,7 +191,21 @@ class PersonalGraphSessionStartRetrievalService(
     } else {
       emptyList()
     }
-    return DURABLE_STATE_BRANCHES_ALWAYS + knowledgeBranch + domainBranches + emotionalBranch
+    return if (retrievalMode == SessionStartRetrievalMode.FullLoading) {
+      durableStateBranches + domainBranches + emotionalBranch
+    } else {
+      domainBranches + durableStateBranches + emotionalBranch
+    }
+  }
+
+  private fun durableStateBranchesFor(
+    classification: RetrievalClassification,
+    retrievalMode: SessionStartRetrievalMode,
+  ): List<Pair<String, String>> = when {
+    retrievalMode == SessionStartRetrievalMode.FullLoading && classification.domain != RetrievalDomain.General ->
+      DURABLE_STATE_BRANCHES_FULL_LOADING
+    classification.domain == RetrievalDomain.General -> DURABLE_STATE_BRANCHES_GENERAL
+    else -> SCOPED_STATE_BRANCHES_FOR_CLASSIFIED
   }
 
   private fun addDefaultSkips(
@@ -311,6 +317,50 @@ class PersonalGraphSessionStartRetrievalService(
     return nodes
   }
 
+  private suspend fun loadIndexBranch(
+    branch: String,
+    reason: String,
+    classification: RetrievalClassification,
+    loadedBranches: MutableList<RetrievedBranch>,
+    skippedBranches: MutableList<SkippedBranch>,
+    audit: MutableList<RetrievalAuditEntry>,
+  ): List<SessionStartIndexMapEntry> {
+    val candidate = vaultRoot.resolve(branch)
+    if (!pathResolver.assertWithinVault(vaultRoot, candidate)) {
+      skip(branch, "branch is outside the vault root or crosses a symlink", skippedBranches, audit)
+      return emptyList()
+    }
+    val entries = graphIndexRepository.listEntriesInBranch(branch, mapFirstIndexQuery(branch))
+      .filter { it.isVisibleInStateBranch(branch, classification.domain) }
+      .sortedBy { it.id.value }
+    loadedBranches.add(RetrievedBranch(branch = branch, reason = reason, nodeCount = entries.size))
+    audit.add(
+      RetrievalAuditEntry(
+        action = "loaded_branch_index",
+        subject = branch,
+        reason = "$reason; index_entries=${entries.size}; include_body=false",
+      ),
+    )
+    return entries.map { entry -> SessionStartIndexMapEntry(entry = entry, reason = reason, plannedBranch = branch) }
+  }
+
+  private fun mapFirstIndexQuery(branch: String): GraphIndexBranchQuery = GraphIndexBranchQuery(
+    limit = if (branch.startsWith("${VaultLayout.BRANCH_STATE}/")) {
+      MAP_FIRST_STATE_INDEX_CANDIDATES_PER_BRANCH
+    } else {
+      MAP_FIRST_INDEX_CANDIDATES_PER_BRANCH
+    },
+    preferredRelativePrefixes = if (branch.startsWith("${VaultLayout.BRANCH_DOMAINS}/")) {
+      listOf(
+        VaultLayout.SUB_DOMAIN_SUBJECTS,
+        "index",
+        VaultLayout.SUB_DOMAIN_EVENTS,
+      )
+    } else {
+      emptyList()
+    },
+  )
+
   private suspend fun loadLinkedPatterns(
     seedNodes: List<VaultNode>,
     audit: MutableList<RetrievalAuditEntry>,
@@ -412,11 +462,15 @@ class PersonalGraphSessionStartRetrievalService(
 
   companion object {
     private const val MAX_PATTERN_RESULTS: Int = 64
+    private const val MAP_FIRST_INDEX_CANDIDATES_PER_BRANCH: Int = 40
+    private const val MAP_FIRST_STATE_INDEX_CANDIDATES_PER_BRANCH: Int = 80
 
-    private const val REASON_PREFERENCES_ALWAYS: String =
-      "preferences are always loaded regardless of classification"
+    private const val REASON_CLASSIFIED_PREFERENCES_SCOPED: String =
+      "classified sessions load scoped preferences plus essential global preferences"
+    private const val REASON_PREFERENCES_GENERAL: String =
+      "general classification loads durable global preferences"
     private const val REASON_ROLES_ALWAYS: String =
-      "roles are always loaded regardless of classification"
+      "general classification loads durable role context"
     private const val REASON_KNOWLEDGE_GENERAL: String =
       "general classification loads durable knowledge branch"
     private const val REASON_DOMAIN_WORK_CAPMO: String =
@@ -434,89 +488,24 @@ class PersonalGraphSessionStartRetrievalService(
     private const val REASON_EMOTIONAL_REQUESTED: String =
       "explicit emotional/self-reflection context"
 
-    private val DURABLE_STATE_BRANCHES_ALWAYS: List<Pair<String, String>> = listOf(
-      VaultLayout.BRANCH_STATE_PREFERENCES to REASON_PREFERENCES_ALWAYS,
+    private val SCOPED_STATE_BRANCHES_FOR_CLASSIFIED: List<Pair<String, String>> = listOf(
+      VaultLayout.BRANCH_STATE_PREFERENCES to REASON_CLASSIFIED_PREFERENCES_SCOPED,
+    )
+
+    private val DURABLE_STATE_BRANCHES_FULL_LOADING: List<Pair<String, String>> = listOf(
+      VaultLayout.BRANCH_STATE_PREFERENCES to REASON_PREFERENCES_GENERAL,
       VaultLayout.BRANCH_STATE_ROLES to REASON_ROLES_ALWAYS,
     )
 
-    private val WORK_CAPMO_TERMS: List<String> = listOf(
-      "capmo",
-    )
-
-    private val WORK_SKILL_BILL_TERMS: List<String> = listOf(
-      "skill-bill",
-      "skill bill",
-      "skillbill",
-      "skill",
-      "skills",
-      "agent workflow",
-    )
-
-    private val WORK_READIAN_TERMS: List<String> = listOf(
-      "readian",
-      "editorial",
-      "assignment desk",
-      "article",
-      "articles",
-      "news",
-    )
-
-    private val WORK_CONTEXT_APP_TERMS: List<String> = listOf(
-      "context-app",
-      "context app",
-      "context",
-      "shelf",
-      "desktop app",
-      "macos app",
-    )
-
-    private val PERSONAL_TERMS: List<String> = listOf(
-      "family",
-      "health",
-      "habit",
-      "finances",
-      "purchase",
-    )
-
-    private val CREATIVE_MUSIC_TERMS: List<String> = listOf(
-      "creative",
-      "writing",
-      "story",
-      "music",
-      "art",
-      "design",
-      "song",
-      "audio",
-      "recording",
-      "mixdown",
-      "bass",
-      "drums",
-      "guitar",
-      "track",
-      "arrangement",
-      "mp3",
-      "studio",
-      "compose",
-      "paint",
-      "draw",
-      "sketch",
-      "band",
-      "instrument",
-    )
-
-    private val EMOTIONAL_TERMS: List<String> = listOf(
-      "emotion",
-      "anxious",
-      "anxiety",
-      "frustrated",
-      "frustration",
-      "excited",
-      "curiosity",
-      "self-reflection",
-      "reflection",
-      "mood",
-      "feeling",
-      "feelings",
+    private val DURABLE_STATE_BRANCHES_GENERAL: List<Pair<String, String>> = listOf(
+      VaultLayout.BRANCH_STATE_PREFERENCES to REASON_PREFERENCES_GENERAL,
+      VaultLayout.BRANCH_STATE_ROLES to REASON_ROLES_ALWAYS,
+      VaultLayout.BRANCH_STATE_KNOWLEDGE to REASON_KNOWLEDGE_GENERAL,
     )
   }
 }
+
+private data class BranchMapResult(
+  val availableMap: List<CompactMapEntry>,
+  val loadedNodes: List<RetrievedNode>,
+)
