@@ -17,6 +17,7 @@ dependencies {
 
   api(libs.kotlin.inject.runtime)
   ksp(libs.kotlin.inject.compiler)
+  kspTest(libs.kotlin.inject.compiler)
 
   testImplementation(libs.kotest.runner.junit5)
   testImplementation(libs.kotest.assertions.core)

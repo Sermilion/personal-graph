@@ -18,6 +18,16 @@ Areas: core/data (session-start retrieval service + suggestion/token helpers), c
 Feature flag: N/A
 Acceptance criteria: pending final validation
 
+## [2026-05-09] traversal-foundation-finalized (PG-6 subtask 1)
+Areas: core/domain/search, core/data/search, core/data/di, core/domain/graph, core/domain/tokens
+- `TraverseGraphService` is the reusable domain/data boundary for traversal; MCP/session_start/read_node wiring stays intentionally out of scope for this subtask.
+- Exact path lookups are branch-warm/retry aware and score as exact even when start ids already fill the entrypoint cap; future path-style retrieval should not let side-map coldness or entrypoint caps hide exact nodes.
+- Backlinks are opt-in by default and built from warmed `GraphIndexEntry.links`, not per-node `VaultRepository.listBacklinks`; explicit backlink traversal warms scoped branches once and reuses the reverse map.
+- Token budgeting accounts for diagnostics (`entrypoints`, `pruned`, `suggestedReads`) as well as nodes/edges; body hydration is gated by indexed body estimates before reading full bodies.
+- Tests now lock service-level direct-evidence ranking, concrete edge weights, policy-hidden outputs, path cold-start behavior, generated DI binding, and body/budget pruning.
+Feature flag: N/A
+Acceptance criteria: 7/7 implemented
+
 ## [2026-05-04] traversal-foundation (PG-6 subtask 1)
 Areas: core/domain (TraverseGraphService + TraverseGraphQuery/Outcome models), core/data (PersonalGraphTraverseGraphService + traversal helpers + DataSearchComponent binding)
 - `traverse_graph` foundation is domain/data only: request accepts query/startIds/branches/edgeTypes/maxDepth/maxNodes/budgetTokens/includeBodies/rankBy, result returns entrypoints, scored nodes, weighted/labeled edges, pruned, suggestedReads, and estimatedTokens; MCP parser/formatter wiring intentionally remains deferred.
