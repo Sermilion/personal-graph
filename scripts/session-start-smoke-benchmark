@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat >&2 <<'EOF'
+Usage: scripts/session-start-smoke-benchmark --vault <path> [--skip-build]
+
+Runs representative session-start CLI calls and prints compact token metrics.
+Use this after retrieval changes to catch accidental MapFirst token regressions.
+
+Options:
+  --vault <path>   Obsidian vault root to query.
+  --skip-build     Reuse the existing CLI installDist output.
+  -h, --help       Show this help.
+EOF
+}
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+CLI="$REPO_ROOT/cli/build/install/personal-graph-cli/bin/personal-graph-cli"
+VAULT_PATH=""
+BUILD=1
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --vault)
+      [[ $# -ge 2 ]] || { echo "Missing value for --vault" >&2; exit 2; }
+      VAULT_PATH="$2"
+      shift 2
+      ;;
+    --skip-build)
+      BUILD=0
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      usage
+      exit 2
+      ;;
+  esac
+done
+
+if [[ -z "$VAULT_PATH" ]]; then
+  echo "Missing required --vault <path>." >&2
+  usage
+  exit 2
+fi
+
+if [[ "$BUILD" -eq 1 ]]; then
+  (cd "$REPO_ROOT" && ./gradlew :cli:installDist >/dev/null)
+fi
+
+printf "case\tclassification\tloaded_context\tavailable_map\ttotal_tokens\tmetadata_tokens\tbody_tokens\tpruned_body_tokens\twarnings\n"
+
+run_case() {
+  local name="$1"
+  local message="$2"
+  local out
+  local err
+  out="$(mktemp)"
+  err="$(mktemp)"
+  "$CLI" session-start --vault "$VAULT_PATH" "$message" >"$out" 2>"$err"
+
+  local classification
+  local loaded
+  local map
+  local tokens
+  local warnings
+  classification="$(awk -F= '/^classification=/{print $2; exit}' "$out")"
+  loaded="$(awk -F'[()]' '/^Loaded context/{print $2; exit}' "$out")"
+  map="$(awk -F'[()]' '/^Available map/{print $2; exit}' "$out")"
+  tokens="$(awk '
+    /^Estimated tokens/ {
+      gsub(/; /, " ")
+      for (i = 1; i <= NF; i++) {
+        split($i, parts, "=")
+        if (parts[1] == "total") total = parts[2]
+        if (parts[1] == "metadata") metadata = parts[2]
+        if (parts[1] == "body") body = parts[2]
+        if (parts[1] == "pruned_body") pruned = parts[2]
+      }
+      print total "\t" metadata "\t" body "\t" pruned
+      exit
+    }
+  ' "$out")"
+  warnings="$(awk '/WARN/{count++} END{print count + 0}' "$err")"
+  printf "%s\t%s\t%s\t%s\t%s\t%s\n" "$name" "$classification" "$loaded" "$map" "$tokens" "$warnings"
+  rm -f "$out" "$err"
+}
+
+run_case "skill-bill" "working on skill-bill feature implementation"
+run_case "capmo" "review a Capmo Android PR"
+run_case "general" "what should we talk about next?"

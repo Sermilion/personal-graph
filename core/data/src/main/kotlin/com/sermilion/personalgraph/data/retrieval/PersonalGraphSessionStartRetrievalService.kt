@@ -65,13 +65,17 @@ class PersonalGraphSessionStartRetrievalService(
 
     val rootDocument = loadBraian(++loadOrder, audit)
     val branchPlan = branchPlanFor(classification, request.retrievalMode)
+    val relevanceTerms = sessionStartRelevanceTerms(request.firstSubstantiveMessage)
     addDefaultSkips(classification, skippedBranches, audit)
 
     val branchMap = loadBranchMap(
-      branchPlan = branchPlan,
-      classification = classification,
-      retrievalMode = request.retrievalMode,
-      initialLoadOrder = loadOrder,
+      request = BranchMapRequest(
+        branchPlan = branchPlan,
+        classification = classification,
+        relevanceTerms = relevanceTerms,
+        retrievalMode = request.retrievalMode,
+        initialLoadOrder = loadOrder,
+      ),
       loadedBranches = loadedBranches,
       skippedBranches = skippedBranches,
       audit = audit,
@@ -79,7 +83,7 @@ class PersonalGraphSessionStartRetrievalService(
     val loadedNodes = branchMap.loadedNodes
     val availableMap = branchMap.availableMap
     val loadedContext = loadedContext(rootDocument, loadedNodes, request.retrievalMode, audit)
-    val suggestedReads = suggestedReads(availableMap, classification, audit)
+    val suggestedReads = suggestedReads(availableMap, classification, relevanceTerms, audit)
     val suggestedActions = suggestedActions(request.firstSubstantiveMessage, classification, loadedBranches, audit)
     audit.add(retrievalModeAudit(request.retrievalMode))
 
@@ -103,22 +107,35 @@ class PersonalGraphSessionStartRetrievalService(
   }
 
   private suspend fun loadBranchMap(
-    branchPlan: List<Pair<String, String>>,
-    classification: RetrievalClassification,
-    retrievalMode: SessionStartRetrievalMode,
-    initialLoadOrder: Int,
+    request: BranchMapRequest,
     loadedBranches: MutableList<RetrievedBranch>,
     skippedBranches: MutableList<SkippedBranch>,
     audit: MutableList<RetrievalAuditEntry>,
-  ): BranchMapResult = if (retrievalMode == SessionStartRetrievalMode.MapFirst) {
-    loadMapFirstBranchMap(branchPlan, classification, loadedBranches, skippedBranches, audit)
+  ): BranchMapResult = if (request.retrievalMode == SessionStartRetrievalMode.MapFirst) {
+    loadMapFirstBranchMap(
+      branchPlan = request.branchPlan,
+      classification = request.classification,
+      relevanceTerms = request.relevanceTerms,
+      loadedBranches = loadedBranches,
+      skippedBranches = skippedBranches,
+      audit = audit,
+    )
   } else {
-    loadFullBranchMap(branchPlan, classification, initialLoadOrder, loadedBranches, skippedBranches, audit)
+    loadFullBranchMap(
+      branchPlan = request.branchPlan,
+      classification = request.classification,
+      relevanceTerms = request.relevanceTerms,
+      initialLoadOrder = request.initialLoadOrder,
+      loadedBranches = loadedBranches,
+      skippedBranches = skippedBranches,
+      audit = audit,
+    )
   }
 
   private suspend fun loadMapFirstBranchMap(
     branchPlan: List<Pair<String, String>>,
     classification: RetrievalClassification,
+    relevanceTerms: Set<String>,
     loadedBranches: MutableList<RetrievedBranch>,
     skippedBranches: MutableList<SkippedBranch>,
     audit: MutableList<RetrievalAuditEntry>,
@@ -128,7 +145,7 @@ class PersonalGraphSessionStartRetrievalService(
       indexEntries.addAll(loadIndexBranch(branch, reason, classification, loadedBranches, skippedBranches, audit))
     }
     return BranchMapResult(
-      availableMap = availableMapFromIndex(loadedBranches, indexEntries, classification),
+      availableMap = availableMapFromIndex(loadedBranches, indexEntries, classification, relevanceTerms),
       loadedNodes = emptyList(),
     )
   }
@@ -136,6 +153,7 @@ class PersonalGraphSessionStartRetrievalService(
   private suspend fun loadFullBranchMap(
     branchPlan: List<Pair<String, String>>,
     classification: RetrievalClassification,
+    relevanceTerms: Set<String>,
     initialLoadOrder: Int,
     loadedBranches: MutableList<RetrievedBranch>,
     skippedBranches: MutableList<SkippedBranch>,
@@ -155,7 +173,7 @@ class PersonalGraphSessionStartRetrievalService(
       node.toRetrievedNode(++loadOrder, "wikilinked pattern hub from loaded retrieval context")
     }
     return BranchMapResult(
-      availableMap = availableMap(loadedBranches, loadedNodes, classification),
+      availableMap = availableMap(loadedBranches, loadedNodes, classification, relevanceTerms),
       loadedNodes = loadedNodes,
     )
   }
@@ -508,4 +526,12 @@ class PersonalGraphSessionStartRetrievalService(
 private data class BranchMapResult(
   val availableMap: List<CompactMapEntry>,
   val loadedNodes: List<RetrievedNode>,
+)
+
+private data class BranchMapRequest(
+  val branchPlan: List<Pair<String, String>>,
+  val classification: RetrievalClassification,
+  val relevanceTerms: Set<String>,
+  val retrievalMode: SessionStartRetrievalMode,
+  val initialLoadOrder: Int,
 )

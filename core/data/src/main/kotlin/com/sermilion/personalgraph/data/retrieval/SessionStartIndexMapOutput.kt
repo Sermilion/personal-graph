@@ -30,12 +30,13 @@ internal fun availableMapFromIndex(
   loadedBranches: List<RetrievedBranch>,
   indexedNodes: List<SessionStartIndexMapEntry>,
   classification: RetrievalClassification,
+  relevanceTerms: Set<String>,
 ): List<CompactMapEntry> = buildList {
   loadedBranches.mapTo(this) { it.toMapEntry() }
   indexedNodes
     .map { it.toMapEntry() }
-    .topEntriesPerBranch(classification)
-    .sortedForMapBudget(classification)
+    .topEntriesPerBranch(classification, relevanceTerms)
+    .sortedForMapBudget(classification, relevanceTerms)
     .take(maxOf(0, MAX_AVAILABLE_INDEX_MAP_ENTRIES - loadedBranches.size))
     .map { it.mapEntry }
     .forEach(::add)
@@ -81,24 +82,26 @@ private fun SessionStartIndexMapEntry.toMapEntry(): RankedCompactMapEntry {
 
 private fun List<RankedCompactMapEntry>.topEntriesPerBranch(
   classification: RetrievalClassification,
+  relevanceTerms: Set<String>,
 ): List<RankedCompactMapEntry> = groupBy { it.plannedBranch }
   .values
   .flatMap { entries ->
     val reservedGlobalPreferences = entries
       .filter { it.mapEntry.isGlobalPreference() }
-      .sortedForMapBudget(classification)
+      .sortedForMapBudget(classification, relevanceTerms)
       .take(MAX_RESERVED_GLOBAL_PREFERENCES_PER_BRANCH)
     val reservedIds = reservedGlobalPreferences.mapTo(mutableSetOf()) { it.mapEntry.id }
     reservedGlobalPreferences + entries
       .filterNot { it.mapEntry.id in reservedIds }
-      .sortedForMapBudget(classification)
+      .sortedForMapBudget(classification, relevanceTerms)
       .take(MAX_AVAILABLE_MAP_ENTRIES_PER_BRANCH - reservedGlobalPreferences.size)
   }
 
 private fun List<RankedCompactMapEntry>.sortedForMapBudget(
   classification: RetrievalClassification,
+  relevanceTerms: Set<String>,
 ): List<RankedCompactMapEntry> = sortedWith(
-  compareByDescending<RankedCompactMapEntry> { it.mapEntry.mapBudgetScore(classification.domain) }
+  compareByDescending<RankedCompactMapEntry> { it.mapEntry.mapBudgetScore(classification.domain, relevanceTerms) }
     .thenByDescending { if (it.mapEntry.summary.hasMeaningfulSummary()) 1 else 0 }
     .thenBy { it.mapEntry.id },
 )

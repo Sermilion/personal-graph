@@ -553,6 +553,22 @@ class PersonalGraphSessionStartRetrievalServiceTest :
           body = "## Summary\nSession start should inspect compact maps first.\n\n## Evidence\n$longBody",
         ),
       ) shouldBe WriteOutcome.Applied
+      repo.writeNode(
+        VaultNodeFixtures.subjectNode(
+          id = "domains/work/skill-bill/subjects/aaa-old-topic",
+          domain = "work/skill-bill",
+          subject = "aaa-old-topic",
+          body = "## Summary\nOlder unrelated subject hub.\n",
+        ),
+      ) shouldBe WriteOutcome.Applied
+      repo.writeNode(
+        VaultNodeFixtures.subjectNode(
+          id = "domains/work/skill-bill/subjects/bill-feature-implement",
+          domain = "work/skill-bill",
+          subject = "bill-feature-implement",
+          body = "## Summary\nFeature implementation workflow for bill-feature-implement.\n",
+        ),
+      ) shouldBe WriteOutcome.Applied
       repeat(35) { index ->
         repo.writeNode(
           VaultNodeFixtures.episodeNode().copy(
@@ -617,6 +633,10 @@ class PersonalGraphSessionStartRetrievalServiceTest :
       mapReport.availableMap.map { it.id } shouldNotContain "state/roles/current-role"
       mapReport.suggestedReads.map { it.id } shouldContain "domains/work/skill-bill/subjects/session-start"
       mapReport.suggestedReads.map { it.id } shouldContain "state/preferences/skill-bill-scope"
+      val featureReport = service.retrieve(SessionStartRetrievalRequest("Skill-bill feature implementation"))
+      featureReport.suggestedReads.first().id shouldBe
+        "domains/work/skill-bill/subjects/bill-feature-implement"
+      featureReport.suggestedReads.map { it.id } shouldContain "state/preferences/skill-bill-scope"
 
       val actions = mapReport.suggestedActions
       actions.map { it.tool } shouldContainExactly listOf("search_nodes", "list_branch")
