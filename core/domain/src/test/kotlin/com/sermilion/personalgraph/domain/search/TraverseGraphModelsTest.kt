@@ -14,6 +14,7 @@ class TraverseGraphModelsTest :
       query.startIds shouldBe emptyList()
       query.branches shouldBe emptyList()
       query.edgeTypes shouldBe TraversalEdgeType.DEFAULTS
+      (TraversalEdgeType.Backlink in query.edgeTypes) shouldBe false
       query.maxDepth shouldBe TraverseGraphQuery.DEFAULT_MAX_DEPTH
       query.maxNodes shouldBe TraverseGraphQuery.DEFAULT_MAX_NODES
       query.budgetTokens shouldBe TraverseGraphQuery.DEFAULT_BUDGET_TOKENS
