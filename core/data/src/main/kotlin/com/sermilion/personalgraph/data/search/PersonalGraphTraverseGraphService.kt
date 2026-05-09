@@ -6,8 +6,12 @@ import com.sermilion.personalgraph.domain.graph.GraphIndexEntry
 import com.sermilion.personalgraph.domain.model.NodeId
 import com.sermilion.personalgraph.domain.repository.GraphIndexRepository
 import com.sermilion.personalgraph.domain.repository.VaultRepository
+import com.sermilion.personalgraph.domain.search.TraversalEdge
 import com.sermilion.personalgraph.domain.search.TraversalEdgeType
 import com.sermilion.personalgraph.domain.search.TraversalEntrypoint
+import com.sermilion.personalgraph.domain.search.TraversalNode
+import com.sermilion.personalgraph.domain.search.TraversalPrunedCandidate
+import com.sermilion.personalgraph.domain.search.TraversalSuggestedRead
 import com.sermilion.personalgraph.domain.search.TraverseGraphOutcome
 import com.sermilion.personalgraph.domain.search.TraverseGraphQuery
 import com.sermilion.personalgraph.domain.search.TraverseGraphService
@@ -29,56 +33,67 @@ class PersonalGraphTraverseGraphService(
       branches = effectiveBranches(query.branches).filter(::idAllowed),
       startIds = query.startIds.filter(::nodeIdAllowed).distinctBy { it.value },
     )
-    val branchEntries = collectBranchEntries(scope)
     val expansionBudget = expansionBudget(query)
+    if (expansionBudget.maxCandidates == 0 || query.budgetTokens <= 0) {
+      return@withContext TraverseGraphOutcome(
+        entrypoints = emptyList(),
+        nodes = emptyList(),
+        edges = emptyList(),
+        pruned = emptyList(),
+        suggestedReads = emptyList(),
+        estimatedTokens = 0,
+      )
+    }
+    val branchEntries = LinkedHashMap<NodeId, GraphIndexEntry>()
     val entrypoints = collectEntrypoints(
       rawQuery = query.query.trim(),
       scope = scope,
       branchEntries = branchEntries,
       maxEntrypoints = expansionBudget.maxCandidates,
     )
-    val backlinkSourcesByTarget = if (shouldCollectBacklinks(query)) {
-      buildBacklinkSourcesByTarget(branchEntries)
-    } else {
-      emptyMap()
-    }
-    val state = expandTraversal(query, scope, branchEntries, backlinkSourcesByTarget, entrypoints)
+    val state = expandTraversal(query, scope, branchEntries, entrypoints)
     applyRanking(query, state)
     val ranked = state.candidates.values
       .sortedWith(candidateComparator(query))
-    val selectionBuilder = TraversalSelectionBuilder(tokenEstimator, query, state.edges)
-    var selection = selectionBuilder.select(ranked)
-    hydrateBodiesIfRequested(query, selection.included)
+    val selectionBuilder = TraversalSelectionBuilder(
+      tokenEstimator = tokenEstimator,
+      query = query,
+      allEdges = state.edges,
+      baseTokenEstimate = estimateEntrypoints(tokenEstimator, state.entrypoints),
+    )
+    var selection = if (query.includeBodies) {
+      selectionBuilder.selectWithBodyHydration(ranked, ::hydrateBody)
+    } else {
+      selectionBuilder.select(ranked)
+    }
     selection = selectionBuilder.trimToBudget(selection)
     val nodes = selection.included.map(::toNode)
     val returnedIds = nodes.mapTo(mutableSetOf()) { it.id }
     val edges = state.edges.filter { it.from in returnedIds && it.to in returnedIds }
-    TraverseGraphOutcome(
+    budgetedOutcome(
+      query = query,
       entrypoints = state.entrypoints,
       nodes = nodes,
       edges = edges,
       pruned = selection.pruned,
-      suggestedReads = suggestedReads(selection.pruned),
-      estimatedTokens = estimateTokens(tokenEstimator, nodes, edges),
     )
   }
 
   private suspend fun collectBranchEntries(
     scope: GraphTraversalRequestScope,
-  ): LinkedHashMap<NodeId, GraphIndexEntry> {
-    val entries = LinkedHashMap<NodeId, GraphIndexEntry>()
+    entries: LinkedHashMap<NodeId, GraphIndexEntry>,
+  ) {
     for (branch in scope.branches) {
       for (entry in graphIndexRepository.listEntriesInBranch(branch)) {
         if (entryAllowed(entry)) entries.putIfAbsent(entry.id, entry)
       }
     }
-    return entries
   }
 
   private suspend fun collectEntrypoints(
     rawQuery: String,
     scope: GraphTraversalRequestScope,
-    branchEntries: Map<NodeId, GraphIndexEntry>,
+    branchEntries: LinkedHashMap<NodeId, GraphIndexEntry>,
     maxEntrypoints: Int,
   ): List<TraversalCandidate> {
     val results = LinkedHashMap<NodeId, TraversalCandidate>()
@@ -94,8 +109,14 @@ class PersonalGraphTraverseGraphService(
       )
     }
     if (rawQuery.isNotEmpty()) {
-      addQueryLookupEntrypoints(rawQuery, scope, branchEntries, results, maxEntrypoints)
-      addQueryScanEntrypoints(rawQuery, branchEntries.values, results, maxEntrypoints)
+      val scanNeeded = addQueryLookupEntrypoints(rawQuery, scope, branchEntries, results, maxEntrypoints)
+      if (scanNeeded) {
+        collectBranchEntries(scope, branchEntries)
+        val retryScanNeeded = addQueryLookupEntrypoints(rawQuery, scope, branchEntries, results, maxEntrypoints)
+        if (retryScanNeeded && results.size < maxEntrypoints) {
+          addQueryScanEntrypoints(rawQuery, branchEntries.values, results, maxEntrypoints)
+        }
+      }
     }
     return results.values.toList()
   }
@@ -103,20 +124,24 @@ class PersonalGraphTraverseGraphService(
   private suspend fun addQueryLookupEntrypoints(
     rawQuery: String,
     scope: GraphTraversalRequestScope,
-    branchEntries: Map<NodeId, GraphIndexEntry>,
+    branchEntries: LinkedHashMap<NodeId, GraphIndexEntry>,
     results: MutableMap<NodeId, TraversalCandidate>,
     maxEntrypoints: Int,
-  ) {
+  ): Boolean {
     val effectiveQuery = stripRecencyTriggers(rawQuery).ifEmpty { rawQuery }
+    var exactLookupResolved = false
     val lookups = listOfNotNull(
-      graphIndexRepository.findEntryByPath(effectiveQuery),
-      graphIndexRepository.findEntryByTitle(effectiveQuery),
-      graphIndexRepository.findEntryByAlias(effectiveQuery),
+      graphIndexRepository.findEntryByPath(effectiveQuery)?.let { PathLookup(it) },
+      graphIndexRepository.findEntryByTitle(effectiveQuery)?.let { MetadataLookup(it) },
+      graphIndexRepository.findEntryByAlias(effectiveQuery)?.let { MetadataLookup(it) },
     )
-    for (entry in lookups) {
+    for (lookup in lookups) {
+      val entry = lookup.entry
       val allowedEntry = findAllowedEntry(entry.id, scope, branchEntries)
       if (allowedEntry != null) {
-        val score = if (allowedEntry.id.value == effectiveQuery) SCORE_EXACT_MATCH else SCORE_METADATA_MATCH
+        val exactLookup = lookup is PathLookup || allowedEntry.id.value == effectiveQuery
+        val score = if (exactLookup) SCORE_EXACT_MATCH else SCORE_METADATA_MATCH
+        exactLookupResolved = exactLookupResolved || exactLookup
         addOrImproveEntrypoint(
           results,
           allowedEntry,
@@ -129,6 +154,7 @@ class PersonalGraphTraverseGraphService(
     }
     val nodeIdEntry = parseNodeIdOrNull(effectiveQuery)?.let { findAllowedEntry(it, scope, branchEntries) }
     if (nodeIdEntry != null) {
+      exactLookupResolved = true
       addOrImproveEntrypoint(
         results,
         nodeIdEntry,
@@ -138,6 +164,7 @@ class PersonalGraphTraverseGraphService(
         maxEntrypoints = maxEntrypoints,
       )
     }
+    return !exactLookupResolved
   }
 
   private fun addQueryScanEntrypoints(
@@ -197,8 +224,7 @@ class PersonalGraphTraverseGraphService(
   private suspend fun expandTraversal(
     query: TraverseGraphQuery,
     scope: GraphTraversalRequestScope,
-    branchEntries: Map<NodeId, GraphIndexEntry>,
-    backlinkSourcesByTarget: Map<NodeId, List<GraphIndexEntry>>,
+    branchEntries: LinkedHashMap<NodeId, GraphIndexEntry>,
     entrypoints: List<TraversalCandidate>,
   ): TraversalState {
     val frontier = TraversalFrontier(
@@ -229,7 +255,7 @@ class PersonalGraphTraverseGraphService(
       val current = frontier.candidates[currentId]
       if (current != null && current.depth < query.maxDepth.coerceAtLeast(0)) {
         collectForwardLinks(context, current)
-        collectBacklinks(context, backlinkSourcesByTarget, current)
+        collectBacklinks(context, current)
       }
     }
     return TraversalState(
@@ -256,25 +282,70 @@ class PersonalGraphTraverseGraphService(
   ): Boolean {
     val type = classifyForwardEdge(current.entry, target)
     if (type !in context.query.edgeTypes) return true
-    val hasBudget = hasExpansionBudgetFor(context, target.id)
-    if (hasBudget) {
+    if (!context.expansionBudget.canAddEdge(context.frontier.edges.size)) return false
+    val canAddTarget = target.id in context.frontier.candidates ||
+      context.expansionBudget.canAddCandidate(context.frontier.candidates.size)
+    if (canAddTarget) {
       addEdge(context.frontier.edges, current.entry.id, target.id, type)
       addExpansionCandidate(context, current, target, type)
     }
-    return hasBudget
+    return true
   }
 
-  private fun collectBacklinks(
+  private suspend fun collectBacklinks(
     context: TraversalExpansionContext,
-    backlinkSourcesByTarget: Map<NodeId, List<GraphIndexEntry>>,
     current: TraversalCandidate,
   ) {
     if (TraversalEdgeType.Backlink !in context.query.edgeTypes) return
-    for (source in backlinkSourcesByTarget[current.entry.id].orEmpty()) {
-      if (!hasExpansionBudgetFor(context, source.id)) return
+    if (!context.expansionBudget.canAddEdge(context.frontier.edges.size)) return
+    ensureScopedBranchEntriesWarmed(context)
+    val seen = mutableSetOf<NodeId>()
+    for (source in backlinkSourcesByTarget(context)[current.entry.id].orEmpty()) {
+      if (!collectBacklinkSource(context, current, source, seen)) return
+    }
+  }
+
+  private suspend fun ensureScopedBranchEntriesWarmed(context: TraversalExpansionContext) {
+    if (context.scopedBranchesWarmed) return
+    collectBranchEntries(context.scope, context.branchEntries)
+    context.scopedBranchesWarmed = true
+  }
+
+  private fun collectBacklinkSource(
+    context: TraversalExpansionContext,
+    current: TraversalCandidate,
+    source: GraphIndexEntry,
+    seen: MutableSet<NodeId>,
+  ): Boolean {
+    if (!seen.add(source.id)) return true
+    if (!context.expansionBudget.canAddEdge(context.frontier.edges.size)) return false
+    val canAddSource = source.id in context.frontier.candidates ||
+      context.expansionBudget.canAddCandidate(context.frontier.candidates.size)
+    if (canAddSource) {
       addEdge(context.frontier.edges, source.id, current.entry.id, TraversalEdgeType.Backlink)
       addExpansionCandidate(context, current, source, TraversalEdgeType.Backlink)
     }
+    return true
+  }
+
+  private fun backlinkSourcesByTarget(
+    context: TraversalExpansionContext,
+  ): Map<NodeId, List<GraphIndexEntry>> {
+    val warmedEntryCount = context.branchEntries.size
+    val existing = context.backlinkSourcesByTarget
+    if (existing != null && context.backlinkSourceEntryCount == warmedEntryCount) return existing
+
+    val sourcesByTarget = LinkedHashMap<NodeId, MutableList<GraphIndexEntry>>()
+    for (source in context.branchEntries.values) {
+      if (!entryAllowed(source) || !entryWithinScope(source, context.scope)) continue
+      for (targetId in source.links.filter(::nodeIdAllowed)) {
+        sourcesByTarget.getOrPut(targetId) { mutableListOf() } += source
+      }
+    }
+    val built = sourcesByTarget.mapValues { (_, sources) -> sources.toList() }
+    context.backlinkSourcesByTarget = built
+    context.backlinkSourceEntryCount = warmedEntryCount
+    return built
   }
 
   private fun addExpansionCandidate(
@@ -303,13 +374,6 @@ class PersonalGraphTraverseGraphService(
     if (field !in existing.matchFields) existing.matchFields += field
   }
 
-  private fun hasExpansionBudgetFor(context: TraversalExpansionContext, targetId: NodeId): Boolean {
-    val frontier = context.frontier
-    val hasCandidateBudget = targetId in frontier.candidates ||
-      context.expansionBudget.canAddCandidate(frontier.candidates.size)
-    return hasCandidateBudget && context.expansionBudget.canAddEdge(frontier.edges.size)
-  }
-
   private fun applyRanking(query: TraverseGraphQuery, state: TraversalState) {
     val effectiveQuery = stripRecencyTriggers(query.query.trim()).ifEmpty { query.query.trim() }
     val lowerQuery = effectiveQuery.lowercase()
@@ -324,40 +388,81 @@ class PersonalGraphTraverseGraphService(
     }
   }
 
-  private suspend fun hydrateBodiesIfRequested(query: TraverseGraphQuery, candidates: List<TraversalCandidate>) {
-    if (!query.includeBodies) return
-    for (candidate in candidates) {
-      val node = vaultRepository.findNode(candidate.entry.id)?.takeIf(::nodeAllowed) ?: continue
-      candidate.body = node.body
-    }
+  private suspend fun hydrateBody(candidate: TraversalCandidate) {
+    val node = vaultRepository.findNode(candidate.entry.id)?.takeIf(::nodeAllowed) ?: return
+    candidate.body = node.body
   }
 
-  private fun findAllowedEntry(
+  private suspend fun findAllowedEntry(
     id: NodeId,
     scope: GraphTraversalRequestScope,
-    branchEntries: Map<NodeId, GraphIndexEntry>,
-  ): GraphIndexEntry? = if (nodeIdAllowed(id)) {
-    branchEntries[id]?.takeIf { entryAllowed(it) && entryWithinScope(it, scope) }
-  } else {
-    null
+    branchEntries: LinkedHashMap<NodeId, GraphIndexEntry>,
+  ): GraphIndexEntry? {
+    if (!nodeIdAllowed(id)) return null
+    val cached = branchEntries[id]
+    val entry = cached ?: graphIndexRepository.findEntry(id)
+    val allowed = entry?.takeIf { entryAllowed(it) && entryWithinScope(it, scope) }
+    if (allowed != null) branchEntries.putIfAbsent(allowed.id, allowed)
+    return allowed
   }
 
-  private fun buildBacklinkSourcesByTarget(
-    branchEntries: Map<NodeId, GraphIndexEntry>,
-  ): Map<NodeId, List<GraphIndexEntry>> {
-    val sourcesByTarget = LinkedHashMap<NodeId, MutableList<GraphIndexEntry>>()
-    for (source in branchEntries.values.filter(::entryAllowed)) {
-      source.links.asSequence()
-        .filter(::nodeIdAllowed)
-        .mapNotNull { targetId -> branchEntries[targetId]?.takeIf(::entryAllowed) }
-        .forEach { target -> sourcesByTarget.getOrPut(target.id) { mutableListOf() } += source }
+  private fun budgetedOutcome(
+    query: TraverseGraphQuery,
+    entrypoints: List<TraversalEntrypoint>,
+    nodes: List<TraversalNode>,
+    edges: List<TraversalEdge>,
+    pruned: List<TraversalPrunedCandidate>,
+  ): TraverseGraphOutcome {
+    val budgetTokens = query.budgetTokens.coerceAtLeast(0)
+    val finalEntrypoints = entrypoints.toMutableList()
+    val finalNodes = nodes.toMutableList()
+    val finalEdges = edges.toMutableList()
+    val finalPruned = pruned.toMutableList()
+    var suggestedLimit = Int.MAX_VALUE
+
+    fun currentSuggested(): List<TraversalSuggestedRead> = suggestedReads(finalPruned, suggestedLimit)
+    fun currentEstimate(): Int = estimateTokens(
+      tokenEstimator = tokenEstimator,
+      entrypoints = finalEntrypoints,
+      nodes = finalNodes,
+      edges = finalEdges,
+      pruned = finalPruned,
+      suggestedReads = currentSuggested(),
+    )
+
+    while (currentEstimate() > budgetTokens) {
+      when {
+        currentSuggested().isNotEmpty() -> suggestedLimit = currentSuggested().size - 1
+        finalPruned.isNotEmpty() -> {
+          finalPruned.removeAt(finalPruned.lastIndex)
+          suggestedLimit = Int.MAX_VALUE
+        }
+        finalEdges.isNotEmpty() -> finalEdges.removeAt(finalEdges.lastIndex)
+        finalNodes.isNotEmpty() -> {
+          val removed = finalNodes.removeAt(finalNodes.lastIndex)
+          finalEdges.removeAll { it.from == removed.id || it.to == removed.id }
+        }
+        finalEntrypoints.isNotEmpty() -> finalEntrypoints.removeAt(finalEntrypoints.lastIndex)
+        else -> break
+      }
     }
-    return sourcesByTarget
-  }
 
-  private fun shouldCollectBacklinks(query: TraverseGraphQuery): Boolean {
-    val backlinksRequested = TraversalEdgeType.Backlink in query.edgeTypes
-    return backlinksRequested && query.maxDepth > 0
+    val finalSuggested = currentSuggested()
+    return TraverseGraphOutcome(
+      entrypoints = finalEntrypoints,
+      nodes = finalNodes,
+      edges = finalEdges,
+      pruned = finalPruned,
+      suggestedReads = finalSuggested,
+      estimatedTokens = estimateTokens(
+        tokenEstimator = tokenEstimator,
+        entrypoints = finalEntrypoints,
+        nodes = finalNodes,
+        edges = finalEdges,
+        pruned = finalPruned,
+        suggestedReads = finalSuggested,
+      ),
+    )
   }
 
   private fun parseNodeIdOrNull(raw: String): NodeId? = try {

@@ -1,5 +1,7 @@
 package com.sermilion.personalgraph.data.search
 
+import com.sermilion.personalgraph.common.di.AppScope
+import com.sermilion.personalgraph.common.dispatcher.DispatcherProvider
 import com.sermilion.personalgraph.data.di.DataSearchComponent
 import com.sermilion.personalgraph.domain.graph.GraphIndexEntry
 import com.sermilion.personalgraph.domain.model.NodeId
@@ -22,8 +24,11 @@ import io.kotest.matchers.ints.shouldBeGreaterThan
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.mockk
 import kotlinx.datetime.Instant
+import me.tatarka.inject.annotations.Component
+import me.tatarka.inject.annotations.Provides
 
 private data class TraversalEntrySpec(
   val id: String,
@@ -115,6 +120,19 @@ private fun newService(
   dispatcherProvider = TestDispatcherProvider(),
 )
 
+@AppScope
+@Component
+internal abstract class TestDataSearchComponent(
+  @get:Provides val graphIndexRepository: GraphIndexRepository,
+  @get:Provides val vaultRepository: VaultRepository,
+  @get:Provides val dispatcherProvider: DispatcherProvider,
+) : DataSearchComponent {
+  @Provides
+  fun provideTokenEstimator(): TokenEstimator = TokenEstimator
+
+  abstract val traverseGraphService: TraverseGraphService
+}
+
 class PersonalGraphTraverseGraphServiceTest :
   FunSpec({
 
@@ -171,20 +189,22 @@ class PersonalGraphTraverseGraphServiceTest :
 
       outcome.entrypoints.map { it.id.value } shouldBe listOf(start.id.value)
       outcome.nodes.map { it.id.value } shouldContain start.id.value
-      outcome.edges.map { it.label }.shouldContainExactlyInAnyOrder(
-        "subject_evidence",
-        "timeline",
-        "pattern",
-        "background",
-        "link",
-        "contradiction",
-        "state",
+      outcome.edges.map { Triple(it.type, it.label, it.weight) }.shouldContainExactlyInAnyOrder(
+        Triple(TraversalEdgeType.SubjectEvidence, "subject_evidence", 14),
+        Triple(TraversalEdgeType.Timeline, "timeline", 12),
+        Triple(TraversalEdgeType.Pattern, "pattern", 12),
+        Triple(TraversalEdgeType.Background, "background", 4),
+        Triple(TraversalEdgeType.Link, "link", 8),
+        Triple(TraversalEdgeType.Contradiction, "contradiction", 15),
+        Triple(TraversalEdgeType.State, "state", 10),
       )
       outcome.estimatedTokens shouldBeGreaterThan 0
     }
 
     test("backlink edge type is collected from warmed graph links") {
-      val start = traversalEntry(TraversalEntrySpec(id = "state/preferences/start"))
+      val start = traversalEntry(
+        TraversalEntrySpec(id = "state/preferences/start", subject = "backlink target"),
+      )
       val backlink = traversalEntry(
         TraversalEntrySpec(
           id = "domains/work/project/generic-note",
@@ -193,10 +213,12 @@ class PersonalGraphTraverseGraphServiceTest :
         ),
       )
       val index = testIndex(mapOf("state" to listOf(start), "domains" to listOf(backlink)))
-      val service = newService(index)
+      val vault = testVault()
+      val service = newService(index, vault)
 
       val outcome = service.traverse(
         TraverseGraphQuery(
+          query = "backlink target",
           startIds = listOf(start.id),
           branches = listOf("state", "domains"),
           edgeTypes = setOf(TraversalEdgeType.Backlink),
@@ -204,8 +226,11 @@ class PersonalGraphTraverseGraphServiceTest :
         ),
       )
 
-      outcome.edges.map { it.label } shouldBe listOf("backlink")
+      outcome.edges.map { Triple(it.type, it.label, it.weight) } shouldBe listOf(
+        Triple(TraversalEdgeType.Backlink, "backlink", 7),
+      )
       outcome.nodes.map { it.id.value } shouldContain backlink.id.value
+      coVerify(exactly = 0) { vault.listBacklinks(any()) }
     }
 
     test("traversal with default branches returns an allowed default branch entry") {
@@ -297,6 +322,36 @@ class PersonalGraphTraverseGraphServiceTest :
       outcome.nodes.map { it.id.value } shouldNotContain generic.id.value
     }
 
+    test("forward expansion skips new candidate cap misses and keeps scanning existing targets") {
+      val existing = traversalEntry(TraversalEntrySpec(id = "state/preferences/ab-existing", subject = "scan"))
+      val newTarget = traversalEntry(TraversalEntrySpec(id = "state/preferences/zz-new-target"))
+      val start = traversalEntry(
+        TraversalEntrySpec(
+          id = "state/preferences/aa-start",
+          subject = "scan",
+          links = listOf(newTarget.id, existing.id),
+        ),
+      )
+      val fillers = (1..6).map {
+        traversalEntry(TraversalEntrySpec(id = "state/preferences/filler-$it", subject = "scan"))
+      }
+      val index = testIndex(mapOf("state" to listOf(start, existing) + fillers + newTarget))
+      val service = newService(index)
+
+      val outcome = service.traverse(
+        TraverseGraphQuery(
+          query = "scan",
+          branches = listOf("state"),
+          maxDepth = 1,
+          maxNodes = 2,
+        ),
+      )
+
+      outcome.nodes.map { it.id.value } shouldBe listOf(start.id.value, existing.id.value)
+      outcome.edges.map { it.to.value } shouldContain existing.id.value
+      outcome.edges.map { it.to.value } shouldNotContain newTarget.id.value
+    }
+
     test("max_depth controls multi-hop traversal depth") {
       val target = traversalEntry(TraversalEntrySpec(id = "state/preferences/target"))
       val intermediate = traversalEntry(
@@ -342,19 +397,42 @@ class PersonalGraphTraverseGraphServiceTest :
       )
     }
 
-    test("ranking boosts exact direct evidence and recency while penalizing broad unrelated hubs") {
-      val exact = traversalEntry(TraversalEntrySpec(id = "state/preferences/api-latency"))
+    test("ranking isolates exact direct evidence recency and hub penalties") {
+      val exact = traversalEntry(TraversalEntrySpec(id = "domains/work/project/api-latency", type = "note"))
+      val leafPeer = traversalEntry(
+        TraversalEntrySpec(id = "domains/work/project/api-latency-peer", type = "note"),
+      )
       val start = traversalEntry(
         TraversalEntrySpec(
           id = "state/preferences/start",
           subject = "api",
-          links = listOf(NodeId("domains/work/project/subjects/api")),
+          links = listOf(
+            exact.id,
+            leafPeer.id,
+            NodeId("domains/work/project/subjects/direct-evidence"),
+            NodeId("domains/work/project/subjects/api-latency-everything"),
+            NodeId("domains/work/project/subjects/everything-else"),
+          ),
         ),
       )
       val subject = traversalEntry(
         TraversalEntrySpec(
-          id = "domains/work/project/subjects/api",
+          id = "domains/work/project/subjects/topic-hub",
           type = "subject",
+          subject = "api-latency",
+        ),
+      )
+      val directSubject = traversalEntry(
+        TraversalEntrySpec(
+          id = "domains/work/project/subjects/direct-evidence",
+          type = "subject",
+          subject = "api-latency direct evidence",
+        ),
+      )
+      val notePeer = traversalEntry(
+        TraversalEntrySpec(
+          id = "domains/work/project/api-note-peer",
+          type = "note",
           subject = "api-latency",
         ),
       )
@@ -366,18 +444,32 @@ class PersonalGraphTraverseGraphServiceTest :
           date = Instant.parse("2026-05-03T00:00:00Z"),
         ),
       )
-      val broad = traversalEntry(
+      val eventPeer = traversalEntry(
         TraversalEntrySpec(
-          id = "domains/work/project/subjects/everything",
+          id = "state/preferences/api-event-peer",
+          topic = "api-latency",
+        ),
+      )
+      val relatedHub = traversalEntry(
+        TraversalEntrySpec(
+          id = "domains/work/project/subjects/api-latency-everything",
           type = "subject",
-          subject = "api-latency",
+          subject = "planning",
+          linkCount = 60,
+        ),
+      )
+      val unrelatedHub = traversalEntry(
+        TraversalEntrySpec(
+          id = "domains/work/project/subjects/everything-else",
+          type = "subject",
+          subject = "planning",
           linkCount = 60,
         ),
       )
       val index = testIndex(
         mapOf(
-          "state" to listOf(exact, start),
-          "domains" to listOf(subject, broad),
+          "state" to listOf(start, eventPeer),
+          "domains" to listOf(exact, leafPeer, subject, directSubject, notePeer, relatedHub, unrelatedHub),
           "timeline" to listOf(event),
         ),
       )
@@ -389,26 +481,16 @@ class PersonalGraphTraverseGraphServiceTest :
           startIds = listOf(start.id),
           branches = listOf("state", "domains", "timeline"),
           maxDepth = 1,
-          maxNodes = 10,
-        ),
-      )
-      val baseline = service.traverse(
-        TraverseGraphQuery(
-          query = "api-latency",
-          startIds = listOf(start.id),
-          branches = listOf("state", "domains", "timeline"),
-          maxDepth = 1,
-          maxNodes = 10,
+          maxNodes = 11,
         ),
       )
 
       val scores = outcome.nodes.associate { it.id.value to it.score }
-      val baselineScores = baseline.nodes.associate { it.id.value to it.score }
-      scores.getValue(exact.id.value) shouldBeGreaterThan scores.getValue(start.id.value)
-      scores.getValue(subject.id.value) shouldBeGreaterThan scores.getValue(start.id.value)
-      scores.getValue(event.id.value) shouldBeGreaterThan baselineScores.getValue(event.id.value)
-      scores.getValue(broad.id.value) shouldBeGreaterThan 0
-      scores.getValue(start.id.value) shouldBeGreaterThan scores.getValue(broad.id.value)
+      scores.getValue(exact.id.value) shouldBeGreaterThan scores.getValue(leafPeer.id.value)
+      scores.getValue(subject.id.value) shouldBeGreaterThan scores.getValue(notePeer.id.value)
+      scores.getValue(directSubject.id.value) shouldBe 123
+      scores.getValue(event.id.value) shouldBeGreaterThan scores.getValue(eventPeer.id.value)
+      scores.getValue(relatedHub.id.value) shouldBeGreaterThan scores.getValue(unrelatedHub.id.value)
     }
 
     test("rank_by recency boosts event-like nodes without textual recency trigger") {
@@ -452,7 +534,7 @@ class PersonalGraphTraverseGraphServiceTest :
         TraverseGraphQuery(query = "budget", branches = listOf("state"), maxNodes = 1),
       )
       val budgetOutcome = service.traverse(
-        TraverseGraphQuery(query = "budget", branches = listOf("state"), maxNodes = 10, budgetTokens = 1),
+        TraverseGraphQuery(query = "budget", branches = listOf("state"), maxNodes = 10, budgetTokens = 35),
       )
 
       maxNodesOutcome.nodes.size shouldBe 1
@@ -462,6 +544,44 @@ class PersonalGraphTraverseGraphServiceTest :
       maxNodesOutcome.suggestedReads.map { it.id.value } shouldContain entries[1].id.value
     }
 
+    test("token accounting budgets returned diagnostics") {
+      val entries = (1..3).map {
+        traversalEntry(TraversalEntrySpec(id = "state/preferences/accounted-$it", subject = "accounted"))
+      }
+      val index = testIndex(mapOf("state" to entries))
+      val service = newService(index)
+
+      val withDiagnostics = service.traverse(
+        TraverseGraphQuery(query = "accounted", branches = listOf("state"), maxNodes = 1),
+      )
+      val diagnosticFreeBudget = estimateTokens(
+        tokenEstimator = TokenEstimator,
+        entrypoints = withDiagnostics.entrypoints,
+        nodes = withDiagnostics.nodes,
+        edges = withDiagnostics.edges,
+        pruned = emptyList(),
+        suggestedReads = emptyList(),
+      )
+      val budgeted = service.traverse(
+        TraverseGraphQuery(
+          query = "accounted",
+          branches = listOf("state"),
+          maxNodes = 1,
+          budgetTokens = diagnosticFreeBudget,
+        ),
+      )
+
+      withDiagnostics.pruned.size shouldBeGreaterThan budgeted.pruned.size
+      withDiagnostics.suggestedReads.size shouldBeGreaterThan budgeted.suggestedReads.size
+      budgeted.nodes.size shouldBe 1
+      budgeted.pruned shouldBe emptyList()
+      budgeted.suggestedReads shouldBe emptyList()
+      (budgeted.estimatedTokens <= diagnosticFreeBudget) shouldBe true
+    }
+  })
+
+class PersonalGraphTraverseGraphServiceBudgetAndLookupTest :
+  FunSpec({
     test("entrypoints are capped to traversal overfetch budget") {
       val entries = (1..10).map {
         traversalEntry(TraversalEntrySpec(id = "state/preferences/item-$it", subject = "budget"))
@@ -474,6 +594,54 @@ class PersonalGraphTraverseGraphServiceTest :
       )
 
       outcome.entrypoints.size shouldBe 4
+    }
+
+    test("start-id traversal resolves without warming scoped branches") {
+      val entry = traversalEntry(TraversalEntrySpec(id = "state/preferences/start-only"))
+      val index = testIndex(mapOf("state" to listOf(entry)))
+      val service = newService(index)
+
+      val outcome = service.traverse(
+        TraverseGraphQuery(
+          startIds = listOf(entry.id),
+          branches = listOf("state"),
+          maxDepth = 0,
+        ),
+      )
+
+      outcome.nodes.map { it.id.value } shouldBe listOf(entry.id.value)
+      coVerify(exactly = 0) { index.listEntriesInBranch(any()) }
+    }
+
+    test("start-id backlink expansion warms scoped graph entries") {
+      val start = traversalEntry(TraversalEntrySpec(id = "state/preferences/start"))
+      val backlink = traversalEntry(
+        TraversalEntrySpec(
+          id = "domains/work/project/backlink-source",
+          type = "note",
+          links = listOf(start.id),
+        ),
+      )
+      val index = testIndex(mapOf("state" to listOf(start), "domains" to listOf(backlink)))
+      val vault = testVault()
+      val service = newService(index, vault)
+
+      val outcome = service.traverse(
+        TraverseGraphQuery(
+          startIds = listOf(start.id),
+          branches = listOf("state", "domains"),
+          edgeTypes = setOf(TraversalEdgeType.Backlink),
+          maxDepth = 1,
+        ),
+      )
+
+      outcome.edges.map { Triple(it.type, it.label, it.weight) } shouldBe listOf(
+        Triple(TraversalEdgeType.Backlink, "backlink", 7),
+      )
+      outcome.nodes.map { it.id.value } shouldContain backlink.id.value
+      coVerify(exactly = 1) { index.listEntriesInBranch("state") }
+      coVerify(exactly = 1) { index.listEntriesInBranch("domains") }
+      coVerify(exactly = 0) { vault.listBacklinks(any()) }
     }
 
     test("budget_tokens pruning includes returned edge token cost") {
@@ -507,11 +675,7 @@ class PersonalGraphTraverseGraphServiceTest :
         ),
       )
 
-      budgetOutcome.estimatedTokens shouldBe metadataOnly.nodes.first().let {
-        TokenEstimator.estimateString(it.id.value) +
-          TokenEstimator.estimateString(it.snippet) +
-          TokenEstimator.estimateString(it.subject.orEmpty())
-      }
+      (budgetOutcome.estimatedTokens <= metadataOnly.estimatedTokens - 1) shouldBe true
       budgetOutcome.edges shouldBe emptyList()
       budgetOutcome.pruned.map { it.reason } shouldContain TraversalPrunedReason.BudgetTokens
     }
@@ -573,6 +737,70 @@ class PersonalGraphTraverseGraphServiceTest :
       withBody.estimatedTokens shouldBeGreaterThan metadataOnly.estimatedTokens
     }
 
+    test("include_bodies prunes hydrated body that exceeds tight budget") {
+      val entry = traversalEntry(
+        TraversalEntrySpec(
+          id = "state/preferences/large-body-note",
+          subject = "large body",
+          bodyTokenEstimate = 1,
+        ),
+      )
+      val node = VaultNodeFixtures.stateNode(
+        id = entry.id.value,
+        body = "large hydrated body ".repeat(80),
+      )
+      val index = testIndex(mapOf("state" to listOf(entry)))
+      val vault = testVault(nodes = mapOf(entry.id to node))
+      val service = newService(index, vault)
+      val metadataOnly = service.traverse(
+        TraverseGraphQuery(query = "large-body-note", branches = listOf("state")),
+      )
+
+      val withBody = service.traverse(
+        TraverseGraphQuery(
+          query = "large-body-note",
+          branches = listOf("state"),
+          includeBodies = true,
+          budgetTokens = metadataOnly.estimatedTokens + entry.bodyTokenEstimate,
+        ),
+      )
+
+      withBody.nodes shouldBe emptyList()
+      withBody.pruned.map { it.reason } shouldContain TraversalPrunedReason.BudgetTokens
+      (withBody.estimatedTokens <= metadataOnly.estimatedTokens + entry.bodyTokenEstimate) shouldBe true
+      coVerify(exactly = 1) { vault.findNode(entry.id) }
+    }
+
+    test("include_bodies skips hydration when indexed body estimate cannot fit") {
+      val entry = traversalEntry(
+        TraversalEntrySpec(
+          id = "state/preferences/indexed-large-body-note",
+          subject = "indexed large body",
+          bodyTokenEstimate = 1_000,
+        ),
+      )
+      val node = VaultNodeFixtures.stateNode(id = entry.id.value, body = "small body")
+      val index = testIndex(mapOf("state" to listOf(entry)))
+      val vault = testVault(nodes = mapOf(entry.id to node))
+      val service = newService(index, vault)
+      val metadataOnly = service.traverse(
+        TraverseGraphQuery(query = "indexed-large-body-note", branches = listOf("state")),
+      )
+
+      val withBody = service.traverse(
+        TraverseGraphQuery(
+          query = "indexed-large-body-note",
+          branches = listOf("state"),
+          includeBodies = true,
+          budgetTokens = metadataOnly.estimatedTokens,
+        ),
+      )
+
+      withBody.nodes shouldBe emptyList()
+      withBody.pruned.map { it.reason } shouldContain TraversalPrunedReason.BudgetTokens
+      coVerify(exactly = 0) { vault.findNode(entry.id) }
+    }
+
     test("absolute path query can resolve through repository path lookup") {
       val entry = traversalEntry(TraversalEntrySpec(id = "state/preferences/path-note", subject = "path note"))
       val absolutePath = "/Users/sermilion/vault/state/preferences/path-note.md"
@@ -588,11 +816,77 @@ class PersonalGraphTraverseGraphServiceTest :
       outcome.nodes.map { it.id.value } shouldContain entry.id.value
     }
 
-    test("data search component provides traverse graph service binding") {
-      val service = newService(testIndex(emptyMap()))
-      val component = object : DataSearchComponent {}
+    test("absolute path query retries path lookup after branch warming") {
+      val entry = traversalEntry(
+        TraversalEntrySpec(id = "state/preferences/cold-path-note", subject = "cold path note"),
+      )
+      val absolutePath = "/Users/sermilion/vault/state/preferences/cold-path-note.md"
+      val warmedBranches = mutableSetOf<String>()
+      val index = mockk<GraphIndexRepository>()
+      coEvery { index.listEntriesInBranch(any()) } answers {
+        val branch = invocation.args[0] as String
+        warmedBranches += branch
+        if (branch == "state") listOf(entry) else emptyList()
+      }
+      coEvery { index.findEntry(any()) } returns entry
+      coEvery { index.findEntryByPath(absolutePath) } answers {
+        if ("state" in warmedBranches) entry else null
+      }
+      coEvery { index.findEntryByTitle(any()) } returns null
+      coEvery { index.findEntryByAlias(any()) } returns null
+      val service = newService(index)
 
-      val provided: TraverseGraphService = component.provideTraverseGraphService(service)
+      val outcome = service.traverse(TraverseGraphQuery(query = absolutePath, branches = listOf("state")))
+
+      outcome.entrypoints.map { it.id.value } shouldBe listOf(entry.id.value)
+      outcome.nodes.map { it.id.value } shouldContain entry.id.value
+      coVerify(exactly = 2) { index.findEntryByPath(absolutePath) }
+    }
+
+    test("cold absolute path query can replace full start id entrypoint set") {
+      val starters = (1..4).map {
+        traversalEntry(TraversalEntrySpec(id = "state/preferences/start-$it", subject = "starter $it"))
+      }
+      val exact = traversalEntry(TraversalEntrySpec(id = "state/preferences/exact", subject = "exact path"))
+      val absolutePath = "/Users/sermilion/vault/state/preferences/exact.md"
+      val entriesById = (starters + exact).associateBy { it.id }
+      val warmedBranches = mutableSetOf<String>()
+      val index = mockk<GraphIndexRepository>()
+      coEvery { index.findEntry(any()) } answers { entriesById[nodeIdArg(invocation.args[0])] }
+      coEvery { index.listEntriesInBranch(any()) } answers {
+        val branch = invocation.args[0] as String
+        warmedBranches += branch
+        if (branch == "state") starters + exact else emptyList()
+      }
+      coEvery { index.findEntryByPath(absolutePath) } answers {
+        if ("state" in warmedBranches) exact else null
+      }
+      coEvery { index.findEntryByTitle(any()) } returns null
+      coEvery { index.findEntryByAlias(any()) } returns null
+      val service = newService(index)
+
+      val outcome = service.traverse(
+        TraverseGraphQuery(
+          query = absolutePath,
+          startIds = starters.map { it.id },
+          branches = listOf("state"),
+          maxNodes = 1,
+        ),
+      )
+
+      outcome.entrypoints.map { it.id.value } shouldContain exact.id.value
+      outcome.nodes.map { it.id.value } shouldBe listOf(exact.id.value)
+      coVerify(exactly = 2) { index.findEntryByPath(absolutePath) }
+    }
+
+    test("data search component provides traverse graph service binding") {
+      val component = TestDataSearchComponent::class.create(
+        graphIndexRepository = testIndex(emptyMap()),
+        vaultRepository = testVault(),
+        dispatcherProvider = TestDispatcherProvider(),
+      )
+
+      val provided: TraverseGraphService = component.traverseGraphService
 
       provided shouldNotBe null
     }
