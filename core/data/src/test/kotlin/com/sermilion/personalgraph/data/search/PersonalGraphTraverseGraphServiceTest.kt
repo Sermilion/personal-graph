@@ -136,7 +136,7 @@ internal abstract class TestDataSearchComponent(
 class PersonalGraphTraverseGraphServiceTest :
   FunSpec({
 
-    test("traversal returns entrypoints scored nodes labeled edges and token estimates") {
+    test("traversal returns entrypoints scored nodes all labeled edges and token estimates") {
       val start = traversalEntry(
         TraversalEntrySpec(
           id = "state/preferences/start",
@@ -165,12 +165,19 @@ class PersonalGraphTraverseGraphServiceTest :
       val pattern = traversalEntry(TraversalEntrySpec(id = "patterns/retry-loop", type = "pattern"))
       val background = traversalEntry(TraversalEntrySpec(id = "outdated/resolved/old-note", type = "note"))
       val link = traversalEntry(TraversalEntrySpec(id = "domains/work/project/generic-note", type = "note"))
+      val backlink = traversalEntry(
+        TraversalEntrySpec(
+          id = "domains/work/project/backlink-source",
+          type = "note",
+          links = listOf(start.id),
+        ),
+      )
       val contradiction = traversalEntry(TraversalEntrySpec(id = "state/preferences/contradicting-note"))
       val state = traversalEntry(TraversalEntrySpec(id = "state/preferences/related-state"))
       val index = testIndex(
         mapOf(
           "state" to listOf(start, contradiction, state),
-          "domains" to listOf(subject, link),
+          "domains" to listOf(subject, link, backlink),
           "timeline" to listOf(event),
           "patterns" to listOf(pattern),
           "outdated" to listOf(background),
@@ -184,6 +191,16 @@ class PersonalGraphTraverseGraphServiceTest :
           branches = listOf("state", "domains", "timeline", "patterns", "outdated"),
           maxDepth = 1,
           maxNodes = 10,
+          edgeTypes = setOf(
+            TraversalEdgeType.Link,
+            TraversalEdgeType.Backlink,
+            TraversalEdgeType.SubjectEvidence,
+            TraversalEdgeType.Timeline,
+            TraversalEdgeType.State,
+            TraversalEdgeType.Pattern,
+            TraversalEdgeType.Contradiction,
+            TraversalEdgeType.Background,
+          ),
         ),
       )
 
@@ -195,6 +212,7 @@ class PersonalGraphTraverseGraphServiceTest :
         Triple(TraversalEdgeType.Pattern, "pattern", 12),
         Triple(TraversalEdgeType.Background, "background", 4),
         Triple(TraversalEdgeType.Link, "link", 8),
+        Triple(TraversalEdgeType.Backlink, "backlink", 7),
         Triple(TraversalEdgeType.Contradiction, "contradiction", 15),
         Triple(TraversalEdgeType.State, "state", 10),
       )
@@ -410,6 +428,7 @@ class PersonalGraphTraverseGraphServiceTest :
             exact.id,
             leafPeer.id,
             NodeId("domains/work/project/subjects/direct-evidence"),
+            NodeId("domains/work/project/api-latency-broad-hub"),
             NodeId("domains/work/project/subjects/api-latency-everything"),
             NodeId("domains/work/project/subjects/everything-else"),
           ),
@@ -450,6 +469,14 @@ class PersonalGraphTraverseGraphServiceTest :
           topic = "api-latency",
         ),
       )
+      val highDegreePeer = traversalEntry(
+        TraversalEntrySpec(
+          id = "domains/work/project/api-latency-broad-hub",
+          type = "note",
+          subject = "api-latency",
+          linkCount = 60,
+        ),
+      )
       val relatedHub = traversalEntry(
         TraversalEntrySpec(
           id = "domains/work/project/subjects/api-latency-everything",
@@ -469,7 +496,16 @@ class PersonalGraphTraverseGraphServiceTest :
       val index = testIndex(
         mapOf(
           "state" to listOf(start, eventPeer),
-          "domains" to listOf(exact, leafPeer, subject, directSubject, notePeer, relatedHub, unrelatedHub),
+          "domains" to listOf(
+            exact,
+            leafPeer,
+            subject,
+            directSubject,
+            notePeer,
+            highDegreePeer,
+            relatedHub,
+            unrelatedHub,
+          ),
           "timeline" to listOf(event),
         ),
       )
@@ -481,7 +517,7 @@ class PersonalGraphTraverseGraphServiceTest :
           startIds = listOf(start.id),
           branches = listOf("state", "domains", "timeline"),
           maxDepth = 1,
-          maxNodes = 11,
+          maxNodes = 12,
         ),
       )
 
@@ -490,6 +526,7 @@ class PersonalGraphTraverseGraphServiceTest :
       scores.getValue(subject.id.value) shouldBeGreaterThan scores.getValue(notePeer.id.value)
       scores.getValue(directSubject.id.value) shouldBe 123
       scores.getValue(event.id.value) shouldBeGreaterThan scores.getValue(eventPeer.id.value)
+      scores.getValue(leafPeer.id.value) shouldBeGreaterThan scores.getValue(highDegreePeer.id.value)
       scores.getValue(relatedHub.id.value) shouldBeGreaterThan scores.getValue(unrelatedHub.id.value)
     }
 
@@ -545,8 +582,19 @@ class PersonalGraphTraverseGraphServiceTest :
 
       maxNodesOutcome.nodes.size shouldBe 1
       maxNodesOutcome.pruned.map { it.reason }.distinct() shouldBe listOf(TraversalPrunedReason.MaxNodes)
+      maxNodesOutcome.pruned.all { it.estimatedTokens > 0 } shouldBe true
+      maxNodesOutcome.suggestedReads.map { it.reason }.distinct() shouldBe listOf(TraversalPrunedReason.MaxNodes.name)
+      maxNodesOutcome.estimatedTokens shouldBe maxNodesOutcome.tokenAccounting.responseTotal
+      maxNodesOutcome.tokenAccounting.prunedBodyTokens shouldBe
+        maxNodesOutcome.pruned.sumOf { it.bodyTokenEstimate }
       budgetOutcome.nodes shouldBe emptyList()
       budgetOutcome.pruned.map { it.reason }.distinct() shouldBe listOf(TraversalPrunedReason.BudgetTokens)
+      budgetOutcome.pruned.all { it.estimatedTokens > 0 } shouldBe true
+      budgetOutcome.suggestedReads.map { it.reason }.distinct() shouldBe listOf(TraversalPrunedReason.BudgetTokens.name)
+      budgetOutcome.estimatedTokens shouldBe budgetOutcome.tokenAccounting.responseTotal
+      (budgetOutcome.estimatedTokens <= 180) shouldBe true
+      budgetOutcome.tokenAccounting.prunedBodyTokens shouldBe
+        budgetOutcome.pruned.sumOf { it.bodyTokenEstimate }
       maxNodesOutcome.suggestedReads.map { it.id.value } shouldContain entries[1].id.value
     }
 

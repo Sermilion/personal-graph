@@ -1,5 +1,14 @@
 # core/data — history
 
+## [2026-05-09] traversal-session-start-validation (PG-6 subtask 3)
+Areas: core/data/search tests, core/data/retrieval tests, mcp-server/tools tests
+- PG-6 validation now locks traversal ranking, pruning, edge labels, blocked-id filtering, and token accounting through behavior-level Kotest coverage rather than transport-only assertions.
+- `session_start` identifier suggestions share one index-search assertion helper for issue keys, PR refs, branch-like ids, and canonical path fragments; keep future identifier prompt cases on this helper so `body_fallback=false`, `include_body=false`, and branch scopes do not drift.
+- Suggested-action leak checks now inspect both `branch` and `branches` args plus rendered suggestion text, covering `people/` and `staging/sensitive/` across the search-first flow.
+- Detekt forced the large session-start retrieval spec into multiple FunSpec classes and shared top-level setup helpers; repeat this split before adding more retrieval test cases.
+Feature flag: N/A
+Acceptance criteria: 8/8 implemented
+
 ## [2026-05-09] runtime-session-wiring (PG-6 subtask 2)
 Areas: core/data/search + retrieval, core/domain/search, mcp-server/tools, core:data + mcp-server tests
 - `traverse_graph` is now exposed through thin MCP parser/schema/formatter wiring over the data service; query is optional, numeric knobs are capped (`max_depth=4`, `max_nodes=100`, `budget_tokens=20000`), and malformed optional args reject before service calls.

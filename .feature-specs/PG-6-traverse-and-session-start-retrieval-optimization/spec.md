@@ -1,6 +1,6 @@
 # PG-6 traverse-and-session-start-retrieval-optimization
 
-Status: In Progress
+Status: Complete
 
 ## Sources
 

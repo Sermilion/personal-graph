@@ -467,10 +467,10 @@ class VaultMcpToolsTest :
           ),
         ),
         estimatedTokens = SessionStartTokenAccounting(
-          responseTotal = 123,
+          responseTotal = 142,
           metadataTokens = 100,
           bodyTokens = 23,
-          prunedBodyTokens = 0,
+          prunedBodyTokens = 19,
         ),
       )
 
@@ -509,9 +509,10 @@ class VaultMcpToolsTest :
       val actionBranches = actionArgs[ToolSchemas.KEY_BRANCHES].shouldBeInstanceOf<JsonArray>()
       actionBranches.map { (it as JsonPrimitive).content } shouldBe listOf("state/preferences", "state/roles")
       val tokens = result[ToolSchemas.KEY_ESTIMATED_TOKENS].shouldBeInstanceOf<JsonObject>()
-      (tokens[ToolSchemas.KEY_RESPONSE_TOTAL] as JsonPrimitive).int shouldBe 123
+      (tokens[ToolSchemas.KEY_RESPONSE_TOTAL] as JsonPrimitive).int shouldBe 142
       (tokens[ToolSchemas.KEY_METADATA_TOKENS] as JsonPrimitive).int shouldBe 100
       (tokens[ToolSchemas.KEY_BODY_TOKENS] as JsonPrimitive).int shouldBe 23
+      (tokens[ToolSchemas.KEY_PRUNED_BODY_TOKENS] as JsonPrimitive).int shouldBe 19
       coVerify(exactly = 1) { ctx.retrieval.retrieve(SessionStartRetrievalRequest("review a Capmo PR")) }
     }
 
