@@ -144,7 +144,17 @@ internal class TraversalSelectionBuilder(
     reason = reason,
     score = candidate.score,
     estimatedTokens = estimate,
+    bodyTokenEstimate = prunedBodyEstimate(candidate),
   )
+
+  private fun prunedBodyEstimate(candidate: TraversalCandidate): Int {
+    val body = candidate.body
+    return if (body != null) {
+      tokenEstimator.estimateBody(body)
+    } else {
+      candidate.entry.bodyTokenEstimate.coerceAtLeast(0)
+    }
+  }
 }
 
 internal fun suggestedReads(

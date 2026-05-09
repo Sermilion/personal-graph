@@ -148,6 +148,7 @@ data class TraversalPrunedCandidate(
   val reason: TraversalPrunedReason,
   val score: Int,
   val estimatedTokens: Int,
+  val bodyTokenEstimate: Int = estimatedTokens,
 )
 
 data class TraversalSuggestedRead(
@@ -163,4 +164,18 @@ data class TraverseGraphOutcome(
   val pruned: List<TraversalPrunedCandidate>,
   val suggestedReads: List<TraversalSuggestedRead>,
   val estimatedTokens: Int,
+  val tokenAccounting: TraversalTokenAccounting = TraversalTokenAccounting(responseTotal = estimatedTokens),
+) {
+  init {
+    require(estimatedTokens == tokenAccounting.responseTotal) {
+      "estimatedTokens must match tokenAccounting.responseTotal"
+    }
+  }
+}
+
+data class TraversalTokenAccounting(
+  val responseTotal: Int = 0,
+  val metadataTokens: Int = 0,
+  val bodyTokens: Int = 0,
+  val prunedBodyTokens: Int = 0,
 )

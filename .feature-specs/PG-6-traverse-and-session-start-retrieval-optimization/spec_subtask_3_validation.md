@@ -1,5 +1,7 @@
 # PG-6 Subtask 3: Validation
 
+Status: Complete
+
 Parent spec: [spec.md](spec.md)
 
 ## Scope

@@ -47,8 +47,11 @@ object ToolSchemas {
     "Bounded graph traversal around query/start_ids. Returns entrypoints, scored nodes, labeled weighted " +
       "edges, pruned candidates, prioritized suggested_reads, and estimated_tokens. Edge labels are " +
       "link, backlink, subject_evidence, timeline, state, pattern, contradiction, and background. " +
-      "max_nodes and budget_tokens cap the response; pruned candidates are surfaced with reasons instead of " +
-      "silently expanding the graph. Read-blocked branches and ids are filtered before formatting."
+      "Defaults are query=\"\", start_ids=[], default allowed retrieval branches, edge_types excluding backlink, " +
+      "max_depth=1, max_nodes=20, budget_tokens=4000, include_bodies=false, and relevance ranking. " +
+      "max_nodes and budget_tokens cap the response; pruned candidates are surfaced with max_nodes or " +
+      "budget_tokens reasons instead of silently expanding the graph. Read-blocked branches and ids are " +
+      "filtered before formatting."
   const val DESC_SESSION_START: String =
     "Map-first session-start retrieval: load bounded root context, return a compact available_map, " +
       "suggest search_nodes/list_branch(index) follow-ups before any full-body read, and expose " +
@@ -116,23 +119,30 @@ object ToolSchemas {
     "If true, include the full node body for each hit. Defaults to false to keep responses compact; " +
       "use read_node to fetch a body once a hit looks relevant."
   const val DESC_FIELD_TRAVERSE_QUERY: String =
-    "Traversal seed query. Exact ids, branches, and metadata hints are all treated as entrypoint signals."
+    "Optional traversal seed query. Defaults to empty. Exact ids, branch/path fragments, titles, aliases, and " +
+      "metadata hints are treated as entrypoint signals."
   const val DESC_FIELD_TRAVERSE_START_IDS: String =
-    "Optional start node ids to seed traversal directly. Use canonical node ids."
+    "Optional start node ids to seed traversal directly. Defaults to an empty array. Use canonical node ids."
   const val DESC_FIELD_TRAVERSE_BRANCHES: String =
-    "Optional branch scope for traversal. Omit to use the default allowed retrieval branches."
+    "Optional branch scope for traversal. Defaults to allowed retrieval branches: state, domains, patterns, " +
+      "emotional-states, timeline, staging/observations, and outdated. Read-blocked and index-excluded ids " +
+      "remain absent from the response."
   const val DESC_FIELD_TRAVERSE_EDGE_TYPES: String =
-    "Edge labels to include. Default includes the traversal vocabulary: link, backlink, subject_evidence, " +
-      "timeline, state, pattern, contradiction, and background."
+    "Edge labels to include. Vocabulary: link, backlink, subject_evidence, timeline, state, pattern, " +
+      "contradiction, and background. Default includes all except backlink; request backlink explicitly " +
+      "when reverse-link expansion is needed."
   const val DESC_FIELD_TRAVERSE_MAX_DEPTH: String =
-    "Maximum hop distance from the selected entrypoints. Defaults to 1 and must be non-negative."
+    "Maximum hop distance from the selected entrypoints. Defaults to 1; must be between 0 and 4."
   const val DESC_FIELD_TRAVERSE_MAX_NODES: String =
-    "Maximum number of nodes returned. Nodes beyond this cap are moved into pruned with reasons."
+    "Maximum number of nodes returned. Defaults to 20; must be between 0 and 100. Nodes beyond this cap are " +
+      "moved into pruned with reason=max_nodes."
   const val DESC_FIELD_TRAVERSE_BUDGET_TOKENS: String =
-    "Token budget for the traversal response. When the next node would exceed the budget, it is pruned " +
-      "with a stable reason."
+    "Token budget for the traversal response. Defaults to 4000; must be between 0 and 20000. When the next " +
+      "node or diagnostics would exceed the budget, the response is trimmed and candidates are pruned with " +
+      "reason=budget_tokens."
   const val DESC_FIELD_TRAVERSE_INCLUDE_BODIES: String =
-    "If true, include node bodies in the traversal response. Defaults to false to keep the result compact."
+    "If true, include node bodies only when they fit within budget_tokens. Defaults to false to keep the result " +
+      "compact; body hydration is budget-gated and skipped for oversized candidates."
   const val DESC_FIELD_TRAVERSE_RANK_BY: String =
     "Ranking hints for traversal. The parser accepts the scoring rubric terms exact_id_match, edge_weight, " +
       "recency, and branch_relevance; recency is the active ranking toggle."

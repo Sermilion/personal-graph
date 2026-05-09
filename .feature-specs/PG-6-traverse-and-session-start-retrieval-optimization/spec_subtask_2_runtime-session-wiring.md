@@ -1,5 +1,7 @@
 # PG-6 Subtask 2: Runtime And Session Wiring
 
+Status: Complete
+
 Parent spec: [spec.md](spec.md)
 
 ## Scope

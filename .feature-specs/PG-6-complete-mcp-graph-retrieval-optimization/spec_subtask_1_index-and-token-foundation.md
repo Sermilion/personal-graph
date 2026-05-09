@@ -1,6 +1,6 @@
 # PG-6 Subtask 1 - Graph index and token estimator foundation
 
-- **Status:** Planned
+- **Status:** Complete
 - **Issue key:** PG-6
 - **Subtask:** 1 of 4
 - **Sources:** [parent spec](./spec.md)

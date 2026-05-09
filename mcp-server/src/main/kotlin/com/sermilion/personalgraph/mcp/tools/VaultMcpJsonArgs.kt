@@ -47,6 +47,34 @@ internal fun JsonObject.nonNegativeIntArgument(key: String): Parsed<Int?> {
   }
 }
 
+internal fun JsonObject.boundedNonNegativeIntArgument(key: String, maxValue: Int): Parsed<Int?> {
+  val parsed = nonNegativeIntArgument(key)
+  return when (parsed) {
+    is Parsed.Failure -> parsed
+    is Parsed.Success -> {
+      val value = parsed.value
+      if (value != null && value > maxValue) {
+        Parsed.Failure(invalidInputJson(key, REASON_INVALID))
+      } else {
+        parsed
+      }
+    }
+  }
+}
+
+internal fun JsonObject.optionalBooleanArgument(key: String): Parsed<Boolean?> = when (val element = this[key]) {
+  null -> Parsed.Success(null)
+  is JsonPrimitive -> {
+    val content = element.contentOrNull
+    when {
+      !element.isString && content == "true" -> Parsed.Success(true)
+      !element.isString && content == "false" -> Parsed.Success(false)
+      else -> Parsed.Failure(invalidInputJson(key, REASON_INVALID))
+    }
+  }
+  else -> Parsed.Failure(invalidInputJson(key, REASON_INVALID))
+}
+
 internal fun JsonObject.stringArrayArgument(key: String): Parsed<List<String>> {
   var error: JsonObject? = null
   val values = when (val element = this[key]) {

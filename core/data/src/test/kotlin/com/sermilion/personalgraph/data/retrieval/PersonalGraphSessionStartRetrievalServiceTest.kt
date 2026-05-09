@@ -12,6 +12,7 @@ import com.sermilion.personalgraph.domain.repository.VaultRepository
 import com.sermilion.personalgraph.domain.repository.WriteOutcome
 import com.sermilion.personalgraph.domain.retrieval.RetrievalDomain
 import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalMode
+import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalReport
 import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalRequest
 import com.sermilion.personalgraph.domain.retrieval.SuggestedActionValue
 import com.sermilion.personalgraph.domain.tokens.TokenEstimator
@@ -33,44 +34,6 @@ import java.nio.file.Path
 
 class PersonalGraphSessionStartRetrievalServiceTest :
   FunSpec({
-
-    fun newService(
-      spyVaultRepository: Boolean = false,
-      spyGraphIndexRepository: Boolean = false,
-    ): TestContext {
-      val tempDir = Files.createTempDirectory("session-start-")
-      val resolver = VaultPathResolver()
-      val dispatcherProvider = TestDispatcherProvider()
-      val repo = PersonalGraphVaultRepository(
-        vaultRoot = tempDir,
-        dispatcherProvider = dispatcherProvider,
-        codec = MarkdownFrontmatterCodec(),
-        pathResolver = resolver,
-        graphIndexInvalidator = NoOpGraphIndexInvalidator,
-      )
-      val serviceRepository = if (spyVaultRepository) spyk(repo) else repo
-      Files.writeString(tempDir.resolve(VaultLayout.BRAIAN_FILENAME), "# Braian\nRoot context.\n")
-      val graphIndexRepository = PersonalGraphGraphIndexRepository(
-        vaultRoot = tempDir,
-        dispatcherProvider = dispatcherProvider,
-        codec = MarkdownFrontmatterCodec(),
-        pathResolver = resolver,
-        tokenEstimator = TokenEstimator,
-      )
-      val serviceGraphIndexRepository = if (spyGraphIndexRepository) {
-        spyk(graphIndexRepository)
-      } else {
-        graphIndexRepository
-      }
-      val service = PersonalGraphSessionStartRetrievalService(
-        vaultRoot = tempDir,
-        repository = serviceRepository,
-        graphIndexRepository = serviceGraphIndexRepository,
-        pathResolver = resolver,
-        dispatcherProvider = dispatcherProvider,
-      )
-      return TestContext(service, repo, tempDir, serviceRepository, serviceGraphIndexRepository)
-    }
 
     test("map-first loads Braian first then classified work index without linked pattern expansion") {
       val (service, repo) = newService()
@@ -104,15 +67,70 @@ class PersonalGraphSessionStartRetrievalServiceTest :
       report.availableMap.map { it.id } shouldNotContain "patterns/review-shape"
       report.suggestedReads.map { it.id } shouldContain "domains/work/capmo/events/review"
       report.suggestedActions.map { it.tool } shouldContainExactly listOf("search_nodes", "list_branch")
+      report.firstSearchBranches() shouldContainExactly listOf(
+        "domains/work/capmo",
+        VaultLayout.BRANCH_STATE_PREFERENCES,
+      )
+      report.firstSearchFields() shouldContainExactly listOf("id", "metadata", "body")
+      report.firstSearchBooleanArg("body_fallback") shouldBe true
+      report.firstSearchBooleanArg("include_body") shouldBe false
       val queryArg = report.suggestedActions.first()
         .args.first { it.key == "query" }
         .value
       (queryArg as SuggestedActionValue.StringValue).value shouldContain "Capmo work please"
+      val listBranchArgs = report.suggestedActions.first { it.tool == "list_branch" }.args.associateBy { it.key }
+      (listBranchArgs.getValue("branch").value as SuggestedActionValue.StringValue).value shouldBe
+        "domains/work/capmo"
+      (listBranchArgs.getValue("mode").value as SuggestedActionValue.StringValue).value shouldBe "index"
+      (listBranchArgs.getValue("include_links").value as SuggestedActionValue.BooleanValue).value shouldBe true
+      (listBranchArgs.getValue("include_body").value as SuggestedActionValue.BooleanValue).value shouldBe false
       report.estimatedTokens.responseTotal shouldBe
         report.estimatedTokens.metadataTokens + report.estimatedTokens.bodyTokens
       (report.estimatedTokens.responseTotal > 0) shouldBe true
       report.auditEntries shouldBe report.audit
       report.audit.map { it.action } shouldContain "loaded_branch_index"
+    }
+
+    test("suggested actions prefer index search for identifiers and hide blocked identifiers") {
+      val (service, _) = newService()
+      val issue = service.retrieve(SessionStartRetrievalRequest("SKILL-33 PR #91 and PR #92"))
+      val personalGraphIssue = service.retrieve(SessionStartRetrievalRequest("PG-6 traversal follow-up"))
+      val pr = service.retrieve(SessionStartRetrievalRequest("PR #91 follow-up"))
+      val branch = service.retrieve(SessionStartRetrievalRequest("feature/runtime-session-wiring branch"))
+      val canonical = service.retrieve(
+        SessionStartRetrievalRequest("domains/work/skill-bill/subjects/session-start.md"),
+      )
+      val blocked = service.retrieve(SessionStartRetrievalRequest("people/alice and staging/sensitive/private"))
+      val blockedCaseVariant = service.retrieve(
+        SessionStartRetrievalRequest("People/alice and Staging/Sensitive/private"),
+      )
+      val absoluteBlocked = service.retrieve(
+        SessionStartRetrievalRequest("please read /Users/me/vault/people/alice.md before standup"),
+      )
+      val mixed = service.retrieve(
+        SessionStartRetrievalRequest("people/alice then domains/work/skill-bill/subjects/session-start.md"),
+      )
+
+      issue.shouldUseIndexSearchSuggestion("SKILL-33")
+      personalGraphIssue.shouldUseIndexSearchSuggestion("PG-6")
+      pr.shouldUseIndexSearchSuggestion("PR #91")
+      branch.shouldUseIndexSearchSuggestion("feature/runtime-session-wiring")
+      canonical.shouldUseIndexSearchSuggestion("domains/work/skill-bill/subjects/session-start")
+      mixed.firstSearchQuery() shouldBe "domains/work/skill-bill/subjects/session-start"
+      blocked.firstSearchQuery().contains("people/alice") shouldBe false
+      blocked.firstSearchQuery().contains("staging/sensitive/private") shouldBe false
+      blockedCaseVariant.firstSearchQuery().contains("People/alice") shouldBe false
+      blockedCaseVariant.firstSearchQuery().contains("Staging/Sensitive/private") shouldBe false
+      absoluteBlocked.firstSearchQuery().contains("people/alice") shouldBe false
+      absoluteBlocked.firstSearchQuery().contains("Users/me/vault/people/alice") shouldBe false
+      blocked.suggestionChannelText().contains("people/alice") shouldBe false
+      blocked.suggestionChannelText().contains("staging/sensitive/private") shouldBe false
+      blockedCaseVariant.suggestionChannelText().contains("people/alice") shouldBe false
+      blockedCaseVariant.suggestionChannelText().contains("staging/sensitive/private") shouldBe false
+      absoluteBlocked.suggestionChannelText().contains("people/alice") shouldBe false
+      blocked.actionBranchValues().blockedBranchPrefixes().shouldBeEmpty()
+      blockedCaseVariant.actionBranchValues().blockedBranchPrefixes().shouldBeEmpty()
+      absoluteBlocked.actionBranchValues().blockedBranchPrefixes().shouldBeEmpty()
     }
 
     test("explicit full-loading includes non-root loaded node bodies") {
@@ -301,6 +319,10 @@ class PersonalGraphSessionStartRetrievalServiceTest :
       report.loadedBranches.map { it.branch } shouldContain VaultLayout.BRANCH_EMOTIONAL_STATES
       report.availableMap.map { it.id } shouldContain "emotional-states/2026-04-24-debug-frustration"
     }
+  })
+
+class PersonalGraphSessionStartRetrievalFilteringTest :
+  FunSpec({
 
     test("retrieval skips people and staging sensitive and does not follow linked pattern files in map-first") {
       val (service, repo, root) = newService()
@@ -676,7 +698,129 @@ private data class TestContext(
   val graphIndexRepository: GraphIndexRepository,
 )
 
+private fun newService(
+  spyVaultRepository: Boolean = false,
+  spyGraphIndexRepository: Boolean = false,
+): TestContext {
+  val tempDir = Files.createTempDirectory("session-start-")
+  val resolver = VaultPathResolver()
+  val dispatcherProvider = TestDispatcherProvider()
+  val repo = PersonalGraphVaultRepository(
+    vaultRoot = tempDir,
+    dispatcherProvider = dispatcherProvider,
+    codec = MarkdownFrontmatterCodec(),
+    pathResolver = resolver,
+    graphIndexInvalidator = NoOpGraphIndexInvalidator,
+  )
+  val serviceRepository = if (spyVaultRepository) spyk(repo) else repo
+  Files.writeString(tempDir.resolve(VaultLayout.BRAIAN_FILENAME), "# Braian\nRoot context.\n")
+  val graphIndexRepository = PersonalGraphGraphIndexRepository(
+    vaultRoot = tempDir,
+    dispatcherProvider = dispatcherProvider,
+    codec = MarkdownFrontmatterCodec(),
+    pathResolver = resolver,
+    tokenEstimator = TokenEstimator,
+  )
+  val serviceGraphIndexRepository = if (spyGraphIndexRepository) {
+    spyk(graphIndexRepository)
+  } else {
+    graphIndexRepository
+  }
+  val service = PersonalGraphSessionStartRetrievalService(
+    vaultRoot = tempDir,
+    repository = serviceRepository,
+    graphIndexRepository = serviceGraphIndexRepository,
+    pathResolver = resolver,
+    dispatcherProvider = dispatcherProvider,
+  )
+  return TestContext(service, repo, tempDir, serviceRepository, serviceGraphIndexRepository)
+}
+
 private fun writeRaw(path: Path, body: String) {
   Files.createDirectories(path.parent)
   Files.writeString(path, body)
+}
+
+private fun SessionStartRetrievalReport.firstSearchQuery(): String {
+  val arg = firstSearchArg("query")
+  return (arg as SuggestedActionValue.StringValue).value
+}
+
+private fun SessionStartRetrievalReport.firstSearchFields(): List<String> {
+  val arg = firstSearchArg("search_fields")
+  return (arg as SuggestedActionValue.StringListValue).value
+}
+
+private fun SessionStartRetrievalReport.firstSearchBooleanArg(key: String): Boolean {
+  val arg = firstSearchArg(key)
+  return (arg as SuggestedActionValue.BooleanValue).value
+}
+
+private fun SessionStartRetrievalReport.firstSearchIntArg(key: String): Int {
+  val arg = firstSearchArg(key)
+  return (arg as SuggestedActionValue.IntValue).value
+}
+
+private fun SessionStartRetrievalReport.firstSearchBranches(): List<String> {
+  val arg = firstSearchArg("branches")
+  return (arg as SuggestedActionValue.StringListValue).value
+}
+
+private fun SessionStartRetrievalReport.firstSearchArg(key: String): SuggestedActionValue {
+  val action = suggestedActions.first { it.tool == "search_nodes" }
+  return action.args.first { it.key == key }.value
+}
+
+private fun SessionStartRetrievalReport.shouldUseIndexSearchSuggestion(query: String) {
+  firstSearchQuery() shouldBe query
+  firstSearchFields() shouldContainExactly listOf("id", "metadata")
+  firstSearchBooleanArg("body_fallback") shouldBe false
+  firstSearchBooleanArg("include_body") shouldBe false
+  firstSearchIntArg("limit") shouldBe 20
+  firstSearchBranches() shouldContainExactly listOf(
+    VaultLayout.BRANCH_STATE,
+    VaultLayout.BRANCH_DOMAINS,
+    VaultLayout.BRANCH_PATTERNS,
+    VaultLayout.BRANCH_EMOTIONAL_STATES,
+    VaultLayout.BRANCH_TIMELINE,
+    VaultLayout.BRANCH_STAGING_OBSERVATIONS,
+    VaultLayout.BRANCH_OUTDATED,
+  )
+}
+
+private fun SessionStartRetrievalReport.actionBranchValues(): List<String> = suggestedActions.flatMap { action ->
+  action.args
+    .filter { it.key == "branch" || it.key == "branches" }
+    .flatMap { it.value.branchTextValues() }
+}
+
+private fun SuggestedActionValue.branchTextValues(): List<String> = when (this) {
+  is SuggestedActionValue.StringValue -> listOf(value)
+  is SuggestedActionValue.StringListValue -> value
+  is SuggestedActionValue.BooleanValue -> emptyList()
+  is SuggestedActionValue.IntValue -> emptyList()
+}
+
+private fun List<String>.blockedBranchPrefixes(): List<String> = filter { branch ->
+  val normalized = branch.lowercase()
+  normalized == VaultLayout.BRANCH_PEOPLE ||
+    normalized.startsWith("${VaultLayout.BRANCH_PEOPLE}/") ||
+    normalized == VaultLayout.BRANCH_STAGING_SENSITIVE ||
+    normalized.startsWith("${VaultLayout.BRANCH_STAGING_SENSITIVE}/")
+}
+
+private fun SessionStartRetrievalReport.suggestionChannelText(): String {
+  val readText = suggestedReads.flatMap { listOf(it.id, it.reason, it.priority.value) }
+  val actionText = suggestedActions.flatMap { action ->
+    listOf(action.tool, action.reason, action.priority.value) +
+      action.args.flatMap { arg -> listOf(arg.key) + arg.value.textValues() }
+  }
+  return (readText + actionText).joinToString(" ").lowercase()
+}
+
+private fun SuggestedActionValue.textValues(): List<String> = when (this) {
+  is SuggestedActionValue.StringValue -> listOf(value)
+  is SuggestedActionValue.BooleanValue -> listOf(value.toString())
+  is SuggestedActionValue.IntValue -> listOf(value.toString())
+  is SuggestedActionValue.StringListValue -> value
 }

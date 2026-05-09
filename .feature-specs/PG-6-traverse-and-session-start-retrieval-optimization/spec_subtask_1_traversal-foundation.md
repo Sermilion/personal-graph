@@ -2,6 +2,8 @@
 
 Parent spec: [spec.md](spec.md)
 
+Status: Completed
+
 ## Scope
 
 Implement the core/domain and core/data foundation for `traverse_graph` without exposing the MCP tool yet. This subtask owns the traversal request/response contracts, index-backed candidate expansion, scoring, edge labeling, pruning, policy filtering, and token estimation needed by later runtime wiring.
