@@ -1,5 +1,15 @@
 # core/data — history
 
+## [2026-05-09] runtime-session-wiring (PG-6 subtask 2)
+Areas: core/data/search + retrieval, core/domain/search, mcp-server/tools, core:data + mcp-server tests
+- `traverse_graph` is now exposed through thin MCP parser/schema/formatter wiring over the data service; query is optional, numeric knobs are capped (`max_depth=4`, `max_nodes=100`, `budget_tokens=20000`), and malformed optional args reject before service calls.
+- Traversal token accounting moved into the data/domain outcome (`TraversalTokenAccounting`) and mirrors the MCP wire fields so `budget_tokens` checks and `estimated_tokens` stay aligned while the formatter remains serialization-only (reusable).
+- `session_start` suggestions now detect issue keys, PR refs, branch-like ids, and canonical path fragments, prefer `search_nodes` with index-style args, and use `list_branch(mode=index)` before full body reads.
+- Blocked/id-hidden paths are filtered at the service/suggestion boundary, including embedded and case-variant `people/` or `staging/sensitive/` path suffixes; do not duplicate policy filtering in MCP formatters.
+- Quality gate found and fixed formatter/accounting drift plus detekt/spotless issues; final `./gradlew check` passed.
+Feature flag: N/A
+Acceptance criteria: 9/9 implemented
+
 ## [2026-05-08] scoped-session-start-map (PG-7)
 Areas: core/data (session-start retrieval + graph index repository), core/domain (graph index contract), cli tests
 - `session_start` MapFirst now classifies project prompts into scoped branch plans and builds the default map from bounded graph-index entries instead of hydrating full branch bodies.

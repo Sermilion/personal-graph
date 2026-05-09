@@ -9,12 +9,12 @@ import com.sermilion.personalgraph.domain.search.TraversalPrunedCandidate
 import com.sermilion.personalgraph.domain.search.TraversalPrunedReason
 import com.sermilion.personalgraph.domain.search.TraversalRankBy
 import com.sermilion.personalgraph.domain.search.TraversalSuggestedRead
+import com.sermilion.personalgraph.domain.search.TraversalTokenAccounting
 import com.sermilion.personalgraph.domain.search.TraverseGraphOutcome
 import com.sermilion.personalgraph.domain.search.TraverseGraphQuery
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
-import io.kotest.matchers.ints.shouldBeGreaterThan
 import io.kotest.matchers.shouldBe
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -67,6 +67,7 @@ class VaultMcpToolsTraverseGraphTest :
             reason = TraversalPrunedReason.BudgetTokens,
             score = 12,
             estimatedTokens = 16000,
+            bodyTokenEstimate = 24000,
           ),
         ),
         suggestedReads = listOf(
@@ -77,6 +78,12 @@ class VaultMcpToolsTraverseGraphTest :
           ),
         ),
         estimatedTokens = 2600,
+        tokenAccounting = TraversalTokenAccounting(
+          responseTotal = 2600,
+          metadataTokens = 120,
+          bodyTokens = 40,
+          prunedBodyTokens = 24000,
+        ),
       )
 
       val args = buildJsonObject {
@@ -170,10 +177,50 @@ class VaultMcpToolsTraverseGraphTest :
       (suggested[ToolSchemas.KEY_REASON] as JsonPrimitive).content shouldBe "pruned by budget_tokens"
 
       val tokens = result[ToolSchemas.KEY_ESTIMATED_TOKENS] as JsonObject
-      (tokens[ToolSchemas.KEY_RESPONSE_TOTAL] as JsonPrimitive).int shouldBeGreaterThan 0
-      (tokens[ToolSchemas.KEY_METADATA_TOKENS] as JsonPrimitive).int shouldBeGreaterThan 0
-      (tokens[ToolSchemas.KEY_BODY_TOKENS] as JsonPrimitive).int shouldBeGreaterThan 0
-      (tokens[ToolSchemas.KEY_PRUNED_BODY_TOKENS] as JsonPrimitive).int shouldBeGreaterThan 0
+      (tokens[ToolSchemas.KEY_RESPONSE_TOTAL] as JsonPrimitive).int shouldBe 2600
+      (tokens[ToolSchemas.KEY_METADATA_TOKENS] as JsonPrimitive).int shouldBe 120
+      (tokens[ToolSchemas.KEY_BODY_TOKENS] as JsonPrimitive).int shouldBe 40
+      (tokens[ToolSchemas.KEY_PRUNED_BODY_TOKENS] as JsonPrimitive).int shouldBe 24000
+    }
+
+    test("traverse_graph applies conservative defaults when only start ids are provided") {
+      val ctx = newVaultMcpToolsTestContext()
+      val captured = slot<TraverseGraphQuery>()
+      coEvery { ctx.traverse.traverse(capture(captured)) } returns TraverseGraphOutcome(
+        entrypoints = emptyList(),
+        nodes = emptyList(),
+        edges = emptyList(),
+        pruned = emptyList(),
+        suggestedReads = emptyList(),
+        estimatedTokens = 0,
+      )
+      val args = buildJsonObject {
+        put(
+          ToolSchemas.KEY_START_IDS,
+          JsonArray(listOf(JsonPrimitive("state/preferences/default-start"))),
+        )
+      }
+
+      val result = ctx.tools.traverseGraph(args)
+
+      (result[ToolSchemas.KEY_STATUS] as JsonPrimitive).content shouldBe ToolSchemas.STATUS_OK
+      captured.captured.query shouldBe ""
+      captured.captured.startIds shouldContainExactly listOf(NodeId("state/preferences/default-start"))
+      captured.captured.branches shouldBe emptyList()
+      captured.captured.edgeTypes.shouldContainExactlyInAnyOrder(
+        TraversalEdgeType.Link,
+        TraversalEdgeType.SubjectEvidence,
+        TraversalEdgeType.Timeline,
+        TraversalEdgeType.State,
+        TraversalEdgeType.Pattern,
+        TraversalEdgeType.Contradiction,
+        TraversalEdgeType.Background,
+      )
+      captured.captured.maxDepth shouldBe 1
+      captured.captured.maxNodes shouldBe TraverseGraphQuery.DEFAULT_MAX_NODES
+      captured.captured.budgetTokens shouldBe TraverseGraphQuery.DEFAULT_BUDGET_TOKENS
+      captured.captured.includeBodies shouldBe false
+      captured.captured.rankBy shouldBe TraversalRankBy.Relevance
     }
 
     test("traverse_graph rejects negative max_depth before calling the service") {
@@ -190,9 +237,95 @@ class VaultMcpToolsTraverseGraphTest :
       coVerify(exactly = 0) { ctx.traverse.traverse(any()) }
     }
 
+    test("traverse_graph rejects non-string query before calling the service") {
+      val ctx = newVaultMcpToolsTestContext()
+      val numericQuery = buildJsonObject {
+        put(ToolSchemas.KEY_QUERY, JsonPrimitive(123))
+      }
+      val arrayQuery = buildJsonObject {
+        put(ToolSchemas.KEY_QUERY, JsonArray(listOf(JsonPrimitive("SKILL-33"))))
+      }
+      val objectQuery = buildJsonObject {
+        put(ToolSchemas.KEY_QUERY, JsonObject(emptyMap()))
+      }
+
+      val numericResult = ctx.tools.traverseGraph(numericQuery)
+      val arrayResult = ctx.tools.traverseGraph(arrayQuery)
+      val objectResult = ctx.tools.traverseGraph(objectQuery)
+
+      (numericResult[ToolSchemas.KEY_STATUS] as JsonPrimitive).content shouldBe ToolSchemas.STATUS_INVALID_INPUT
+      (numericResult[ToolSchemas.KEY_FIELD] as JsonPrimitive).content shouldBe ToolSchemas.KEY_QUERY
+      (arrayResult[ToolSchemas.KEY_STATUS] as JsonPrimitive).content shouldBe ToolSchemas.STATUS_INVALID_INPUT
+      (arrayResult[ToolSchemas.KEY_FIELD] as JsonPrimitive).content shouldBe ToolSchemas.KEY_QUERY
+      (objectResult[ToolSchemas.KEY_STATUS] as JsonPrimitive).content shouldBe ToolSchemas.STATUS_INVALID_INPUT
+      (objectResult[ToolSchemas.KEY_FIELD] as JsonPrimitive).content shouldBe ToolSchemas.KEY_QUERY
+      coVerify(exactly = 0) { ctx.traverse.traverse(any()) }
+    }
+
+    test("traverse_graph rejects bounded numeric args and invalid include_bodies before calling the service") {
+      val ctx = newVaultMcpToolsTestContext()
+      val tooDeep = buildJsonObject {
+        put(ToolSchemas.KEY_QUERY, JsonPrimitive("SKILL-33"))
+        put(ToolSchemas.KEY_MAX_DEPTH, JsonPrimitive(5))
+      }
+      val tooManyNodes = buildJsonObject {
+        put(ToolSchemas.KEY_QUERY, JsonPrimitive("SKILL-33"))
+        put(ToolSchemas.KEY_MAX_NODES, JsonPrimitive(101))
+      }
+      val tooManyTokens = buildJsonObject {
+        put(ToolSchemas.KEY_QUERY, JsonPrimitive("SKILL-33"))
+        put(ToolSchemas.KEY_BUDGET_TOKENS, JsonPrimitive(20_001))
+      }
+      val invalidBoolean = buildJsonObject {
+        put(ToolSchemas.KEY_QUERY, JsonPrimitive("SKILL-33"))
+        put(ToolSchemas.KEY_INCLUDE_BODIES, JsonPrimitive("true"))
+      }
+
+      val depthResult = ctx.tools.traverseGraph(tooDeep)
+      val nodesResult = ctx.tools.traverseGraph(tooManyNodes)
+      val tokensResult = ctx.tools.traverseGraph(tooManyTokens)
+      val booleanResult = ctx.tools.traverseGraph(invalidBoolean)
+
+      (depthResult[ToolSchemas.KEY_STATUS] as JsonPrimitive).content shouldBe ToolSchemas.STATUS_INVALID_INPUT
+      (depthResult[ToolSchemas.KEY_FIELD] as JsonPrimitive).content shouldBe ToolSchemas.KEY_MAX_DEPTH
+      (nodesResult[ToolSchemas.KEY_STATUS] as JsonPrimitive).content shouldBe ToolSchemas.STATUS_INVALID_INPUT
+      (nodesResult[ToolSchemas.KEY_FIELD] as JsonPrimitive).content shouldBe ToolSchemas.KEY_MAX_NODES
+      (tokensResult[ToolSchemas.KEY_STATUS] as JsonPrimitive).content shouldBe ToolSchemas.STATUS_INVALID_INPUT
+      (tokensResult[ToolSchemas.KEY_FIELD] as JsonPrimitive).content shouldBe ToolSchemas.KEY_BUDGET_TOKENS
+      (booleanResult[ToolSchemas.KEY_STATUS] as JsonPrimitive).content shouldBe ToolSchemas.STATUS_INVALID_INPUT
+      (booleanResult[ToolSchemas.KEY_FIELD] as JsonPrimitive).content shouldBe ToolSchemas.KEY_INCLUDE_BODIES
+      coVerify(exactly = 0) { ctx.traverse.traverse(any()) }
+    }
+
+    test("traverse_graph accepts maximum bounded numeric args") {
+      val ctx = newVaultMcpToolsTestContext()
+      val captured = slot<TraverseGraphQuery>()
+      coEvery { ctx.traverse.traverse(capture(captured)) } returns TraverseGraphOutcome(
+        entrypoints = emptyList(),
+        nodes = emptyList(),
+        edges = emptyList(),
+        pruned = emptyList(),
+        suggestedReads = emptyList(),
+        estimatedTokens = 0,
+      )
+      val args = buildJsonObject {
+        put(ToolSchemas.KEY_MAX_DEPTH, JsonPrimitive(4))
+        put(ToolSchemas.KEY_MAX_NODES, JsonPrimitive(100))
+        put(ToolSchemas.KEY_BUDGET_TOKENS, JsonPrimitive(20_000))
+      }
+
+      val result = ctx.tools.traverseGraph(args)
+
+      (result[ToolSchemas.KEY_STATUS] as JsonPrimitive).content shouldBe ToolSchemas.STATUS_OK
+      captured.captured.maxDepth shouldBe 4
+      captured.captured.maxNodes shouldBe 100
+      captured.captured.budgetTokens shouldBe 20_000
+    }
+
     test("traverse_graph schema exposes edge labels and pruning semantics") {
       val schema = traverseGraphSchema()
 
+      schema.required shouldBe emptyList()
       val edgeTypesField = schema.properties!![ToolSchemas.KEY_EDGE_TYPES] as JsonObject
       val edgeTypesItems = edgeTypesField["items"] as JsonObject
       val edgeTypesEnum = edgeTypesItems["enum"] as JsonArray
@@ -212,5 +345,16 @@ class VaultMcpToolsTraverseGraphTest :
       rankByDescription.contains("exact_id_match") shouldBe true
       rankByDescription.contains("recency") shouldBe true
       rankByDescription.contains("branch_relevance") shouldBe true
+      val edgeDescription = (edgeTypesField["description"] as JsonPrimitive).content
+      edgeDescription.contains("Default includes all except backlink") shouldBe true
+      val budgetField = schema.properties!![ToolSchemas.KEY_BUDGET_TOKENS] as JsonObject
+      (budgetField["minimum"] as JsonPrimitive).int shouldBe 0
+      (budgetField["maximum"] as JsonPrimitive).int shouldBe 20000
+      val maxDepthField = schema.properties!![ToolSchemas.KEY_MAX_DEPTH] as JsonObject
+      (maxDepthField["minimum"] as JsonPrimitive).int shouldBe 0
+      (maxDepthField["maximum"] as JsonPrimitive).int shouldBe 4
+      val maxNodesField = schema.properties!![ToolSchemas.KEY_MAX_NODES] as JsonObject
+      (maxNodesField["minimum"] as JsonPrimitive).int shouldBe 0
+      (maxNodesField["maximum"] as JsonPrimitive).int shouldBe 100
     }
   })

@@ -12,6 +12,7 @@ import com.sermilion.personalgraph.domain.repository.VaultRepository
 import com.sermilion.personalgraph.domain.repository.WriteOutcome
 import com.sermilion.personalgraph.domain.retrieval.RetrievalDomain
 import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalMode
+import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalReport
 import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalRequest
 import com.sermilion.personalgraph.domain.retrieval.SuggestedActionValue
 import com.sermilion.personalgraph.domain.tokens.TokenEstimator
@@ -113,6 +114,46 @@ class PersonalGraphSessionStartRetrievalServiceTest :
       (report.estimatedTokens.responseTotal > 0) shouldBe true
       report.auditEntries shouldBe report.audit
       report.audit.map { it.action } shouldContain "loaded_branch_index"
+    }
+
+    test("suggested actions prefer index search for identifiers and hide blocked identifiers") {
+      val (service, _) = newService()
+      val issue = service.retrieve(SessionStartRetrievalRequest("SKILL-33 PR #91 and PR #92"))
+      val pr = service.retrieve(SessionStartRetrievalRequest("PR #91 follow-up"))
+      val branch = service.retrieve(SessionStartRetrievalRequest("feature/runtime-session-wiring branch"))
+      val canonical = service.retrieve(
+        SessionStartRetrievalRequest("domains/work/skill-bill/subjects/session-start.md"),
+      )
+      val blocked = service.retrieve(SessionStartRetrievalRequest("people/alice and staging/sensitive/private"))
+      val blockedCaseVariant = service.retrieve(
+        SessionStartRetrievalRequest("People/alice and Staging/Sensitive/private"),
+      )
+      val absoluteBlocked = service.retrieve(
+        SessionStartRetrievalRequest("please read /Users/me/vault/people/alice.md before standup"),
+      )
+      val mixed = service.retrieve(
+        SessionStartRetrievalRequest("people/alice then domains/work/skill-bill/subjects/session-start.md"),
+      )
+
+      issue.firstSearchQuery() shouldBe "SKILL-33"
+      issue.firstSearchFields() shouldContainExactly listOf("id", "metadata")
+      issue.firstSearchBooleanArg("body_fallback") shouldBe false
+      issue.firstSearchBooleanArg("include_body") shouldBe false
+      pr.firstSearchQuery() shouldBe "PR #91"
+      branch.firstSearchQuery() shouldBe "feature/runtime-session-wiring"
+      canonical.firstSearchQuery() shouldBe "domains/work/skill-bill/subjects/session-start"
+      mixed.firstSearchQuery() shouldBe "domains/work/skill-bill/subjects/session-start"
+      blocked.firstSearchQuery().contains("people/alice") shouldBe false
+      blocked.firstSearchQuery().contains("staging/sensitive/private") shouldBe false
+      blockedCaseVariant.firstSearchQuery().contains("People/alice") shouldBe false
+      blockedCaseVariant.firstSearchQuery().contains("Staging/Sensitive/private") shouldBe false
+      absoluteBlocked.firstSearchQuery().contains("people/alice") shouldBe false
+      absoluteBlocked.firstSearchQuery().contains("Users/me/vault/people/alice") shouldBe false
+      blocked.suggestedActions.flatMap { action ->
+        action.args.filter { it.key == "branches" }
+      }.flatMap { arg ->
+        (arg.value as SuggestedActionValue.StringListValue).value
+      }.joinToString(",").contains("staging/sensitive") shouldBe false
     }
 
     test("explicit full-loading includes non-root loaded node bodies") {
@@ -679,4 +720,24 @@ private data class TestContext(
 private fun writeRaw(path: Path, body: String) {
   Files.createDirectories(path.parent)
   Files.writeString(path, body)
+}
+
+private fun SessionStartRetrievalReport.firstSearchQuery(): String {
+  val arg = firstSearchArg("query")
+  return (arg as SuggestedActionValue.StringValue).value
+}
+
+private fun SessionStartRetrievalReport.firstSearchFields(): List<String> {
+  val arg = firstSearchArg("search_fields")
+  return (arg as SuggestedActionValue.StringListValue).value
+}
+
+private fun SessionStartRetrievalReport.firstSearchBooleanArg(key: String): Boolean {
+  val arg = firstSearchArg(key)
+  return (arg as SuggestedActionValue.BooleanValue).value
+}
+
+private fun SessionStartRetrievalReport.firstSearchArg(key: String): SuggestedActionValue {
+  val action = suggestedActions.first { it.tool == "search_nodes" }
+  return action.args.first { it.key == key }.value
 }

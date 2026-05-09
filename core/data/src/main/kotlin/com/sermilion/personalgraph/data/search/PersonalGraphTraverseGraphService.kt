@@ -11,6 +11,7 @@ import com.sermilion.personalgraph.domain.search.TraversalEdgeType
 import com.sermilion.personalgraph.domain.search.TraversalEntrypoint
 import com.sermilion.personalgraph.domain.search.TraversalNode
 import com.sermilion.personalgraph.domain.search.TraversalPrunedCandidate
+import com.sermilion.personalgraph.domain.search.TraversalPrunedReason
 import com.sermilion.personalgraph.domain.search.TraversalSuggestedRead
 import com.sermilion.personalgraph.domain.search.TraverseGraphOutcome
 import com.sermilion.personalgraph.domain.search.TraverseGraphQuery
@@ -35,13 +36,22 @@ class PersonalGraphTraverseGraphService(
     )
     val expansionBudget = expansionBudget(query)
     if (expansionBudget.maxCandidates == 0 || query.budgetTokens <= 0) {
+      val tokenAccounting = estimateTokenAccounting(
+        tokenEstimator = tokenEstimator,
+        entrypoints = emptyList(),
+        nodes = emptyList(),
+        edges = emptyList(),
+        pruned = emptyList(),
+        suggestedReads = emptyList(),
+      )
       return@withContext TraverseGraphOutcome(
         entrypoints = emptyList(),
         nodes = emptyList(),
         edges = emptyList(),
         pruned = emptyList(),
         suggestedReads = emptyList(),
-        estimatedTokens = 0,
+        estimatedTokens = tokenAccounting.responseTotal,
+        tokenAccounting = tokenAccounting,
       )
     }
     val branchEntries = LinkedHashMap<NodeId, GraphIndexEntry>()
@@ -67,13 +77,12 @@ class PersonalGraphTraverseGraphService(
       selectionBuilder.select(ranked)
     }
     selection = selectionBuilder.trimToBudget(selection)
-    val nodes = selection.included.map(::toNode)
-    val returnedIds = nodes.mapTo(mutableSetOf()) { it.id }
+    val returnedIds = selection.included.mapTo(mutableSetOf()) { it.entry.id }
     val edges = state.edges.filter { it.from in returnedIds && it.to in returnedIds }
     budgetedOutcome(
       query = query,
       entrypoints = state.entrypoints,
-      nodes = nodes,
+      included = selection.included,
       edges = edges,
       pruned = selection.pruned,
     )
@@ -409,22 +418,23 @@ class PersonalGraphTraverseGraphService(
   private fun budgetedOutcome(
     query: TraverseGraphQuery,
     entrypoints: List<TraversalEntrypoint>,
-    nodes: List<TraversalNode>,
+    included: List<TraversalCandidate>,
     edges: List<TraversalEdge>,
     pruned: List<TraversalPrunedCandidate>,
   ): TraverseGraphOutcome {
     val budgetTokens = query.budgetTokens.coerceAtLeast(0)
     val finalEntrypoints = entrypoints.toMutableList()
-    val finalNodes = nodes.toMutableList()
+    val finalIncluded = included.toMutableList()
     val finalEdges = edges.toMutableList()
     val finalPruned = pruned.toMutableList()
     var suggestedLimit = Int.MAX_VALUE
 
     fun currentSuggested(): List<TraversalSuggestedRead> = suggestedReads(finalPruned, suggestedLimit)
+    fun currentNodes(): List<TraversalNode> = finalIncluded.map(::toNode)
     fun currentEstimate(): Int = estimateTokens(
       tokenEstimator = tokenEstimator,
       entrypoints = finalEntrypoints,
-      nodes = finalNodes,
+      nodes = currentNodes(),
       edges = finalEdges,
       pruned = finalPruned,
       suggestedReads = currentSuggested(),
@@ -437,31 +447,48 @@ class PersonalGraphTraverseGraphService(
           finalPruned.removeAt(finalPruned.lastIndex)
           suggestedLimit = Int.MAX_VALUE
         }
-        finalEdges.isNotEmpty() -> finalEdges.removeAt(finalEdges.lastIndex)
-        finalNodes.isNotEmpty() -> {
-          val removed = finalNodes.removeAt(finalNodes.lastIndex)
-          finalEdges.removeAll { it.from == removed.id || it.to == removed.id }
-        }
+        finalIncluded.isNotEmpty() -> pruneLastIncludedCandidate(query, finalIncluded, finalEdges, finalPruned)
         finalEntrypoints.isNotEmpty() -> finalEntrypoints.removeAt(finalEntrypoints.lastIndex)
         else -> break
       }
     }
 
     val finalSuggested = currentSuggested()
+    val finalNodes = currentNodes()
+    val tokenAccounting = estimateTokenAccounting(
+      tokenEstimator = tokenEstimator,
+      entrypoints = finalEntrypoints,
+      nodes = finalNodes,
+      edges = finalEdges,
+      pruned = finalPruned,
+      suggestedReads = finalSuggested,
+    )
     return TraverseGraphOutcome(
       entrypoints = finalEntrypoints,
       nodes = finalNodes,
       edges = finalEdges,
       pruned = finalPruned,
       suggestedReads = finalSuggested,
-      estimatedTokens = estimateTokens(
-        tokenEstimator = tokenEstimator,
-        entrypoints = finalEntrypoints,
-        nodes = finalNodes,
-        edges = finalEdges,
-        pruned = finalPruned,
-        suggestedReads = finalSuggested,
-      ),
+      estimatedTokens = tokenAccounting.responseTotal,
+      tokenAccounting = tokenAccounting,
+    )
+  }
+
+  private fun pruneLastIncludedCandidate(
+    query: TraverseGraphQuery,
+    included: MutableList<TraversalCandidate>,
+    edges: MutableList<TraversalEdge>,
+    pruned: MutableList<TraversalPrunedCandidate>,
+  ) {
+    val removed = included.removeAt(included.lastIndex)
+    edges.removeAll { it.from == removed.entry.id || it.to == removed.entry.id }
+    pruned += TraversalPrunedCandidate(
+      id = removed.entry.id,
+      reason = TraversalPrunedReason.BudgetTokens,
+      score = removed.score,
+      estimatedTokens = estimateCandidate(tokenEstimator, removed, query.includeBodies),
+      bodyTokenEstimate = removed.body?.let(tokenEstimator::estimateBody)
+        ?: removed.entry.bodyTokenEstimate.coerceAtLeast(0),
     )
   }
 

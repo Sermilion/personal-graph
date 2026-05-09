@@ -525,7 +525,13 @@ class PersonalGraphTraverseGraphServiceTest :
 
     test("max_nodes and budget_tokens pruning use stable reasons and suggested reads") {
       val entries = (1..3).map {
-        traversalEntry(TraversalEntrySpec(id = "state/preferences/item-$it", subject = "budget"))
+        traversalEntry(
+          TraversalEntrySpec(
+            id = "state/preferences/item-$it",
+            subject = "budget",
+            snippet = (1..40).joinToString(" ") { index -> "budget-snippet-$index" },
+          ),
+        )
       }
       val index = testIndex(mapOf("state" to entries))
       val service = newService(index)
@@ -534,7 +540,7 @@ class PersonalGraphTraverseGraphServiceTest :
         TraverseGraphQuery(query = "budget", branches = listOf("state"), maxNodes = 1),
       )
       val budgetOutcome = service.traverse(
-        TraverseGraphQuery(query = "budget", branches = listOf("state"), maxNodes = 10, budgetTokens = 35),
+        TraverseGraphQuery(query = "budget", branches = listOf("state"), maxNodes = 10, budgetTokens = 180),
       )
 
       maxNodesOutcome.nodes.size shouldBe 1
@@ -688,11 +694,23 @@ class PersonalGraphTraverseGraphServiceBudgetAndLookupTest :
           subject = "allowed",
         ),
       )
+      val visiblePruned = traversalEntry(
+        TraversalEntrySpec(
+          id = "state/preferences/visible-pruned",
+          subject = "allowed",
+          bodyTokenEstimate = 321,
+        ),
+      )
       val leakedPeople = traversalEntry(TraversalEntrySpec(id = "people/alice", branch = "state", subject = "allowed"))
       val leakedSensitive = traversalEntry(
-        TraversalEntrySpec(id = "staging/sensitive/secret", branch = "state", subject = "allowed"),
+        TraversalEntrySpec(
+          id = "staging/sensitive/secret",
+          branch = "state",
+          subject = "allowed",
+          bodyTokenEstimate = 1000,
+        ),
       )
-      val index = testIndex(mapOf("state" to listOf(allowed, leakedPeople, leakedSensitive)))
+      val index = testIndex(mapOf("state" to listOf(allowed, visiblePruned, leakedPeople, leakedSensitive)))
       val vault = testVault(
         backlinks = mapOf(
           allowed.id to listOf(VaultNodeFixtures.stateNode(id = "people/bob", body = "blocked")),
@@ -717,6 +735,12 @@ class PersonalGraphTraverseGraphServiceBudgetAndLookupTest :
       visibleIds shouldNotContain "people/alice"
       visibleIds shouldNotContain "people/bob"
       visibleIds shouldNotContain "staging/sensitive/secret"
+      outcome.pruned.map { it.id.value } shouldBe listOf(visiblePruned.id.value)
+      outcome.estimatedTokens shouldBe outcome.tokenAccounting.responseTotal
+      outcome.tokenAccounting.responseTotal shouldBe
+        outcome.tokenAccounting.metadataTokens + outcome.tokenAccounting.bodyTokens
+      outcome.tokenAccounting.prunedBodyTokens shouldBe visiblePruned.bodyTokenEstimate
+      outcome.pruned.single().estimatedTokens shouldNotBe outcome.tokenAccounting.prunedBodyTokens
     }
 
     test("include_bodies hydrates returned nodes and affects token estimates") {

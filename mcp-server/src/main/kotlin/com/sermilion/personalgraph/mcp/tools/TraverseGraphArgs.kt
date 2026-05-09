@@ -19,14 +19,12 @@ internal data class TraverseGraphArgs(
 )
 
 internal fun parseTraverseGraphArgs(args: JsonObject): Parsed<TraverseGraphArgs> {
-  val query = args.stringOrNull(ToolSchemas.KEY_QUERY)
-    ?: return Parsed.Failure(invalidInputJson(ToolSchemas.KEY_QUERY, REASON_MISSING))
   val parts = collectTraverseGraphParts(args)
   val firstError = parts.firstError
   if (firstError != null) return Parsed.Failure(firstError)
   return Parsed.Success(
     TraverseGraphArgs(
-      query = query,
+      query = parts.query.orEmpty(),
       startIds = parts.startIds,
       branches = parts.branches,
       edgeTypes = parts.edgeTypes,
@@ -52,6 +50,7 @@ internal fun TraverseGraphArgs.toTraverseGraphQuery(): TraverseGraphQuery = Trav
 )
 
 private data class TraverseGraphParts(
+  val query: String?,
   val startIds: List<NodeId>,
   val branches: List<String>,
   val edgeTypes: Set<TraversalEdgeType>,
@@ -64,30 +63,44 @@ private data class TraverseGraphParts(
 )
 
 private fun collectTraverseGraphParts(args: JsonObject): TraverseGraphParts {
+  val queryParsed = args.optionalStringArgument(ToolSchemas.KEY_QUERY)
   val startIdsParsed = parseTraverseNodeIds(args)
   val branchesParsed = args.stringArrayArgument(ToolSchemas.KEY_BRANCHES)
   val edgeTypesParsed = parseTraverseEdgeTypes(args)
-  val maxDepthParsed = args.nonNegativeIntArgument(ToolSchemas.KEY_MAX_DEPTH)
-  val maxNodesParsed = args.nonNegativeIntArgument(ToolSchemas.KEY_MAX_NODES)
-  val budgetTokensParsed = args.nonNegativeIntArgument(ToolSchemas.KEY_BUDGET_TOKENS)
+  val maxDepthParsed = args.boundedNonNegativeIntArgument(
+    ToolSchemas.KEY_MAX_DEPTH,
+    MAX_TRAVERSE_MAX_DEPTH,
+  )
+  val maxNodesParsed = args.boundedNonNegativeIntArgument(
+    ToolSchemas.KEY_MAX_NODES,
+    MAX_TRAVERSE_MAX_NODES,
+  )
+  val budgetTokensParsed = args.boundedNonNegativeIntArgument(
+    ToolSchemas.KEY_BUDGET_TOKENS,
+    MAX_TRAVERSE_BUDGET_TOKENS,
+  )
+  val includeBodiesParsed = args.optionalBooleanArgument(ToolSchemas.KEY_INCLUDE_BODIES)
   val rankByParsed = parseTraverseRankBy(args)
   val error = firstFailureJson(
+    queryParsed,
     startIdsParsed,
     branchesParsed,
     edgeTypesParsed,
     maxDepthParsed,
     maxNodesParsed,
     budgetTokensParsed,
+    includeBodiesParsed,
     rankByParsed,
   )
   return TraverseGraphParts(
+    query = if (queryParsed is Parsed.Success) queryParsed.value else null,
     startIds = if (startIdsParsed is Parsed.Success) startIdsParsed.value else emptyList(),
     branches = if (branchesParsed is Parsed.Success) branchesParsed.value else emptyList(),
     edgeTypes = if (edgeTypesParsed is Parsed.Success) edgeTypesParsed.value else TraversalEdgeType.DEFAULTS,
     maxDepth = if (maxDepthParsed is Parsed.Success) maxDepthParsed.value else null,
     maxNodes = if (maxNodesParsed is Parsed.Success) maxNodesParsed.value else null,
     budgetTokens = if (budgetTokensParsed is Parsed.Success) budgetTokensParsed.value else null,
-    includeBodies = args.booleanOrNull(ToolSchemas.KEY_INCLUDE_BODIES) == true,
+    includeBodies = if (includeBodiesParsed is Parsed.Success) includeBodiesParsed.value == true else false,
     rankBy = if (rankByParsed is Parsed.Success) rankByParsed.value else TraversalRankBy.Relevance,
     firstError = error,
   )
@@ -168,3 +181,6 @@ private fun parseTraverseRankByHint(raw: String): TraversalRankBy? = when (raw.l
 }
 
 private const val DEFAULT_TRAVERSE_MAX_DEPTH: Int = 1
+private const val MAX_TRAVERSE_MAX_DEPTH: Int = 4
+private const val MAX_TRAVERSE_MAX_NODES: Int = 100
+private const val MAX_TRAVERSE_BUDGET_TOKENS: Int = 20_000

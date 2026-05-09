@@ -6,9 +6,17 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 
-private fun integerSchema(description: String? = null): JsonObject = buildJsonObject {
+private data class IntegerSchemaOptions(
+  val description: String? = null,
+  val minimum: Int? = null,
+  val maximum: Int? = null,
+)
+
+private fun integerSchema(options: IntegerSchemaOptions = IntegerSchemaOptions()): JsonObject = buildJsonObject {
   put("type", JsonPrimitive("integer"))
-  if (description != null) put("description", JsonPrimitive(description))
+  if (options.minimum != null) put("minimum", JsonPrimitive(options.minimum))
+  if (options.maximum != null) put("maximum", JsonPrimitive(options.maximum))
+  if (options.description != null) put("description", JsonPrimitive(options.description))
 }
 
 private fun stringEnumArraySchema(values: List<String>, description: String? = null): JsonObject = buildJsonObject {
@@ -35,14 +43,23 @@ internal fun traverseGraphSchema(): ToolSchema = ToolSchema(
       ToolSchemas.KEY_EDGE_TYPES,
       stringEnumArraySchema(ToolSchemas.ENUM_TRAVERSAL_EDGE_TYPES, ToolSchemas.DESC_FIELD_TRAVERSE_EDGE_TYPES),
     )
-    put(ToolSchemas.KEY_MAX_DEPTH, integerSchema(ToolSchemas.DESC_FIELD_TRAVERSE_MAX_DEPTH))
-    put(ToolSchemas.KEY_MAX_NODES, integerSchema(ToolSchemas.DESC_FIELD_TRAVERSE_MAX_NODES))
-    put(ToolSchemas.KEY_BUDGET_TOKENS, integerSchema(ToolSchemas.DESC_FIELD_TRAVERSE_BUDGET_TOKENS))
+    put(
+      ToolSchemas.KEY_MAX_DEPTH,
+      integerSchema(IntegerSchemaOptions(ToolSchemas.DESC_FIELD_TRAVERSE_MAX_DEPTH, minimum = 0, maximum = 4)),
+    )
+    put(
+      ToolSchemas.KEY_MAX_NODES,
+      integerSchema(IntegerSchemaOptions(ToolSchemas.DESC_FIELD_TRAVERSE_MAX_NODES, minimum = 0, maximum = 100)),
+    )
+    put(
+      ToolSchemas.KEY_BUDGET_TOKENS,
+      integerSchema(IntegerSchemaOptions(ToolSchemas.DESC_FIELD_TRAVERSE_BUDGET_TOKENS, minimum = 0, maximum = 20_000)),
+    )
     put(ToolSchemas.KEY_INCLUDE_BODIES, ToolSchemaProperties.boolean(ToolSchemas.DESC_FIELD_TRAVERSE_INCLUDE_BODIES))
     put(
       ToolSchemas.KEY_RANK_BY,
       stringEnumArraySchema(ToolSchemas.ENUM_TRAVERSAL_RANK_BY, ToolSchemas.DESC_FIELD_TRAVERSE_RANK_BY),
     )
   },
-  required = listOf(ToolSchemas.KEY_QUERY),
+  required = emptyList(),
 )

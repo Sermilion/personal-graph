@@ -1,6 +1,7 @@
 package com.sermilion.personalgraph.data.retrieval
 
 import com.sermilion.personalgraph.domain.layout.VaultLayout
+import com.sermilion.personalgraph.domain.layout.VaultPolicy
 import com.sermilion.personalgraph.domain.retrieval.RetrievalAuditEntry
 import com.sermilion.personalgraph.domain.retrieval.RetrievalClassification
 import com.sermilion.personalgraph.domain.retrieval.RetrievalDomain
@@ -29,7 +30,7 @@ internal fun suggestedActions(
   }
 
   val identifierLikeQuery = detectIdentifierLikeQuery(trimmed)
-  val searchQuery = identifierLikeQuery ?: trimmed
+  val searchQuery = identifierLikeQuery ?: sanitizedSearchQuery(trimmed, classification)
   val branches = if (identifierLikeQuery != null) {
     defaultSearchBranches()
   } else {
@@ -192,18 +193,84 @@ private fun renderActionValue(value: SuggestedActionValue): String = when (value
 }
 
 private fun detectIdentifierLikeQuery(message: String): String? {
-  val patterns = listOf(
-    Regex("""\b[A-Z][A-Z0-9]+-\d+\b"""),
-    Regex("""\bPR\s*#\d+\b""", RegexOption.IGNORE_CASE),
-    Regex("""\b(?:feat|fix|chore|docs|refactor|test|perf|build)/[A-Za-z0-9._/-]+\b""", RegexOption.IGNORE_CASE),
-    Regex("""\b(?:state|domains|patterns|emotional-states|timeline|staging|people)(?:/[A-Za-z0-9._-]+)+\b"""),
-  )
-  for (pattern in patterns) {
-    val match = pattern.find(message) ?: continue
-    return match.value.trim()
+  for (pattern in IDENTIFIER_PATTERNS) {
+    for (match in pattern.findAll(message)) {
+      val candidate = normalizeIdentifierMatch(match.value)
+      if (candidate.isVisibleIdentifier()) return candidate
+    }
   }
   return null
 }
+
+private fun sanitizedSearchQuery(message: String, classification: RetrievalClassification): String {
+  val ranges = blockedIdentifierRanges(message)
+  if (ranges.isEmpty()) return message
+  val builder = StringBuilder(message)
+  for (range in ranges.sortedByDescending { it.first }) {
+    builder.replace(range.first, range.last + 1, " ")
+  }
+  return builder.toString()
+    .trim()
+    .split(Regex("\\s+"))
+    .filter { it.isNotBlank() }
+    .joinToString(" ")
+    .ifBlank { classification.domain.value }
+}
+
+private fun blockedIdentifierRanges(message: String): List<IntRange> = IDENTIFIER_PATTERNS
+  .flatMap { pattern -> pattern.findAll(message).map { it.range } }
+  .distinctBy { it.first to it.last }
+  .filter { range ->
+    val candidate = normalizeIdentifierMatch(message.substring(range))
+    !candidate.isVisibleIdentifier()
+  }
+  .mergeOverlaps()
+
+private fun List<IntRange>.mergeOverlaps(): List<IntRange> {
+  val merged = mutableListOf<IntRange>()
+  for (range in sortedBy { it.first }) {
+    val previous = merged.lastOrNull()
+    if (previous != null && range.first <= previous.last + 1) {
+      merged[merged.lastIndex] = previous.first..maxOf(previous.last, range.last)
+    } else {
+      merged += range
+    }
+  }
+  return merged
+}
+
+private fun normalizeIdentifierMatch(raw: String): String = raw
+  .trim()
+  .trimStart('(', '[', '{')
+  .trimEnd('.', ',', ';', ':', ')', ']', '}')
+  .removeSuffix(".md")
+
+private fun String.isVisibleIdentifier(): Boolean = !isReadBlockedIdentifier() &&
+  !isIndexExcludedIdentifier() &&
+  !containsBlockedPathSuffix()
+
+private fun String.containsBlockedPathSuffix(): Boolean {
+  val segments = trim('/').split('/').filter { it.isNotBlank() }
+  return segments.indices.any { index ->
+    val suffix = segments.drop(index).joinToString("/")
+    suffix.isReadBlockedIdentifier() || suffix.isIndexExcludedIdentifier()
+  }
+}
+
+private fun String.isReadBlockedIdentifier(): Boolean = VaultPolicy.isReadBlocked(policyComparableIdentifier())
+
+private fun String.isIndexExcludedIdentifier(): Boolean = VaultPolicy.isIndexExcluded(policyComparableIdentifier())
+
+private fun String.policyComparableIdentifier(): String = lowercase()
+
+private val IDENTIFIER_PATTERNS: List<Regex> = listOf(
+  Regex("""\b[A-Z][A-Z0-9]+-\d+\b"""),
+  Regex("""\bPR\s*#\d+\b""", RegexOption.IGNORE_CASE),
+  Regex(
+    """\b(?:state|domains|patterns|emotional-states|timeline|staging|people)(?:/[A-Za-z0-9._-]+)+(?:\.md)?\b""",
+  ),
+  Regex("""\b[A-Za-z][A-Za-z0-9._-]*(?:/[A-Za-z0-9][A-Za-z0-9._-]*)+\b"""),
+)
 
 private fun defaultSearchBranches(): List<String> = listOf(
   VaultLayout.BRANCH_STATE,
