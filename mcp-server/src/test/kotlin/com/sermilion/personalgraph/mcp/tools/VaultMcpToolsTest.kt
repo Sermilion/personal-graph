@@ -32,11 +32,17 @@ import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalMode
 import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalReport
 import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalRequest
 import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalService
+import com.sermilion.personalgraph.domain.retrieval.SessionStartTokenAccounting
 import com.sermilion.personalgraph.domain.retrieval.SkippedBranch
+import com.sermilion.personalgraph.domain.retrieval.SuggestedAction
+import com.sermilion.personalgraph.domain.retrieval.SuggestedActionArg
+import com.sermilion.personalgraph.domain.retrieval.SuggestedActionPriority
+import com.sermilion.personalgraph.domain.retrieval.SuggestedActionValue
 import com.sermilion.personalgraph.domain.retrieval.SuggestedRead
 import com.sermilion.personalgraph.domain.retrieval.SuggestedReadPriority
 import com.sermilion.personalgraph.domain.search.BranchListingService
 import com.sermilion.personalgraph.domain.search.NodeSearchService
+import com.sermilion.personalgraph.domain.search.TraverseGraphService
 import com.sermilion.personalgraph.testing.VaultNodeFixtures
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
@@ -50,6 +56,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.int
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -63,16 +70,21 @@ class VaultMcpToolsTest :
       val retrieval = mockk<SessionStartRetrievalService>()
       val search = mockk<NodeSearchService>()
       val branchListing = mockk<BranchListingService>()
+      val traverse = mockk<TraverseGraphService>()
+      val readServices = VaultMcpReadServices(
+        retrieval,
+        search,
+        branchListing,
+        traverse,
+      )
       val tools = VaultMcpTools(
         repo,
         VaultPathResolver(),
         tempDir,
         capture,
-        retrieval,
-        search,
-        branchListing,
+        readServices,
       )
-      return VaultMcpToolsTestContext(tools, repo, capture, retrieval, search, branchListing, tempDir)
+      return VaultMcpToolsTestContext(tools, repo, capture, retrieval, search, branchListing, traverse, tempDir)
     }
 
     test("write_state happy-path forwards typed args to capture service") {
@@ -433,6 +445,33 @@ class VaultMcpToolsTest :
             priority = SuggestedReadPriority.Medium,
           ),
         ),
+        suggestedActions = listOf(
+          SuggestedAction(
+            tool = "search_nodes",
+            args = listOf(
+              SuggestedActionArg("query", SuggestedActionValue.StringValue("review a Capmo PR")),
+              SuggestedActionArg(
+                "branches",
+                SuggestedActionValue.StringListValue(listOf("state/preferences", "state/roles")),
+              ),
+              SuggestedActionArg("limit", SuggestedActionValue.IntValue(20)),
+              SuggestedActionArg(
+                "search_fields",
+                SuggestedActionValue.StringListValue(listOf("id", "metadata", "body")),
+              ),
+              SuggestedActionArg("body_fallback", SuggestedActionValue.BooleanValue(true)),
+              SuggestedActionArg("include_body", SuggestedActionValue.BooleanValue(false)),
+            ),
+            reason = "search the loaded branches before reading full bodies",
+            priority = SuggestedActionPriority.High,
+          ),
+        ),
+        estimatedTokens = SessionStartTokenAccounting(
+          responseTotal = 123,
+          metadataTokens = 100,
+          bodyTokens = 23,
+          prunedBodyTokens = 0,
+        ),
       )
 
       val result = ctx.tools.sessionStart(
@@ -459,6 +498,20 @@ class VaultMcpToolsTest :
       (suggestedRead[ToolSchemas.KEY_REASON] as JsonPrimitive).content shouldBe
         "classified work/capmo; event evidence may be useful after map review"
       (suggestedRead[ToolSchemas.KEY_PRIORITY] as JsonPrimitive).content shouldBe "medium"
+      val suggestedActions = result[ToolSchemas.KEY_SUGGESTED_ACTIONS].shouldBeInstanceOf<JsonArray>()
+      suggestedActions.size shouldBe 1
+      val suggestedAction = suggestedActions[0] as JsonObject
+      (suggestedAction[ToolSchemas.KEY_TOOL] as JsonPrimitive).content shouldBe "search_nodes"
+      (suggestedAction[ToolSchemas.KEY_REASON] as JsonPrimitive).content shouldBe
+        "search the loaded branches before reading full bodies"
+      val actionArgs = suggestedAction[ToolSchemas.KEY_ARGS].shouldBeInstanceOf<JsonObject>()
+      (actionArgs[ToolSchemas.KEY_QUERY] as JsonPrimitive).content shouldBe "review a Capmo PR"
+      val actionBranches = actionArgs[ToolSchemas.KEY_BRANCHES].shouldBeInstanceOf<JsonArray>()
+      actionBranches.map { (it as JsonPrimitive).content } shouldBe listOf("state/preferences", "state/roles")
+      val tokens = result[ToolSchemas.KEY_ESTIMATED_TOKENS].shouldBeInstanceOf<JsonObject>()
+      (tokens[ToolSchemas.KEY_RESPONSE_TOTAL] as JsonPrimitive).int shouldBe 123
+      (tokens[ToolSchemas.KEY_METADATA_TOKENS] as JsonPrimitive).int shouldBe 100
+      (tokens[ToolSchemas.KEY_BODY_TOKENS] as JsonPrimitive).int shouldBe 23
       coVerify(exactly = 1) { ctx.retrieval.retrieve(SessionStartRetrievalRequest("review a Capmo PR")) }
     }
 
@@ -562,12 +615,19 @@ class VaultMcpToolsTest :
       description shouldContain "Defaults to map-first"
       description shouldContain "available_map"
       description shouldContain "suggested_reads"
+      description shouldContain "suggested_actions"
+      description shouldContain "estimated_tokens"
       description shouldContain "full-loading"
     }
 
     test("tool descriptions document map-first and full-body follow-up path") {
       ToolSchemas.DESC_SESSION_START shouldContain "Map-first"
       ToolSchemas.DESC_SESSION_START shouldContain "available_map"
+      ToolSchemas.DESC_SESSION_START shouldContain "suggested_actions"
+      ToolSchemas.DESC_SESSION_START shouldContain "estimated_tokens"
+      ToolSchemas.DESC_TRAVERSE_GRAPH shouldContain "entrypoints"
+      ToolSchemas.DESC_TRAVERSE_GRAPH shouldContain "pruned candidates"
+      ToolSchemas.DESC_TRAVERSE_GRAPH shouldContain "budget_tokens"
       ToolSchemas.DESC_READ_NODE shouldContain "full node body"
       ToolSchemas.DESC_LIST_BRANCH shouldContain "explicit follow-up"
     }
@@ -588,6 +648,7 @@ internal data class VaultMcpToolsTestContext(
   val retrieval: SessionStartRetrievalService,
   val search: NodeSearchService,
   val branchListing: BranchListingService,
+  val traverse: TraverseGraphService,
   val vaultRoot: Path,
 )
 
@@ -598,14 +659,19 @@ internal fun newVaultMcpToolsTestContext(): VaultMcpToolsTestContext {
   val retrieval = mockk<SessionStartRetrievalService>()
   val search = mockk<NodeSearchService>()
   val branchListing = mockk<BranchListingService>()
+  val traverse = mockk<TraverseGraphService>()
+  val readServices = VaultMcpReadServices(
+    retrieval,
+    search,
+    branchListing,
+    traverse,
+  )
   val tools = VaultMcpTools(
     repo,
     VaultPathResolver(),
     tempDir,
     capture,
-    retrieval,
-    search,
-    branchListing,
+    readServices,
   )
-  return VaultMcpToolsTestContext(tools, repo, capture, retrieval, search, branchListing, tempDir)
+  return VaultMcpToolsTestContext(tools, repo, capture, retrieval, search, branchListing, traverse, tempDir)
 }

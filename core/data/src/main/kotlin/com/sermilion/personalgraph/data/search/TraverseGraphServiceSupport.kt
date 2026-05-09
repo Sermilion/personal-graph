@@ -63,25 +63,10 @@ internal data class TraversalFrontier(
 internal data class TraversalExpansionContext(
   val query: TraverseGraphQuery,
   val scope: GraphTraversalRequestScope,
-  val branchEntries: LinkedHashMap<NodeId, GraphIndexEntry>,
+  val branchEntries: Map<NodeId, GraphIndexEntry>,
   val expansionBudget: TraversalExpansionBudget,
   val frontier: TraversalFrontier,
-  var backlinkSourcesByTarget: Map<NodeId, List<GraphIndexEntry>>? = null,
-  var backlinkSourceEntryCount: Int = -1,
-  var scopedBranchesWarmed: Boolean = false,
 )
-
-internal sealed interface TraversalLookup {
-  val entry: GraphIndexEntry
-}
-
-internal data class PathLookup(
-  override val entry: GraphIndexEntry,
-) : TraversalLookup
-
-internal data class MetadataLookup(
-  override val entry: GraphIndexEntry,
-) : TraversalLookup
 
 internal fun effectiveBranches(requested: List<String>): List<String> {
   if (requested.isNotEmpty()) return requested.map { it.trim('/') }.filter { it.isNotEmpty() }

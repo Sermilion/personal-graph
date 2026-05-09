@@ -1,6 +1,6 @@
 # PG-6 Subtask 2 - search_nodes index-first and list_branch index mode
 
-- **Status:** Planned
+- **Status:** Complete
 - **Issue key:** PG-6
 - **Subtask:** 2 of 4
 - **Sources:** [parent spec](./spec.md)

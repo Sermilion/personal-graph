@@ -108,7 +108,7 @@ enum class TraversalEdgeType {
   ;
 
   companion object {
-    val DEFAULTS: Set<TraversalEdgeType> = entries.toSet() - Backlink
+    val DEFAULTS: Set<TraversalEdgeType> = entries.toSet()
   }
 }
 

@@ -2,13 +2,19 @@ package com.sermilion.personalgraph.data.retrieval
 
 import com.sermilion.personalgraph.data.codec.MarkdownFrontmatterCodec
 import com.sermilion.personalgraph.data.path.VaultPathResolver
+import com.sermilion.personalgraph.data.repository.PersonalGraphGraphIndexRepository
 import com.sermilion.personalgraph.data.repository.PersonalGraphVaultRepository
 import com.sermilion.personalgraph.domain.layout.VaultLayout
 import com.sermilion.personalgraph.domain.model.NodeId
+import com.sermilion.personalgraph.domain.model.StateCategory
+import com.sermilion.personalgraph.domain.repository.GraphIndexRepository
+import com.sermilion.personalgraph.domain.repository.VaultRepository
 import com.sermilion.personalgraph.domain.repository.WriteOutcome
 import com.sermilion.personalgraph.domain.retrieval.RetrievalDomain
 import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalMode
 import com.sermilion.personalgraph.domain.retrieval.SessionStartRetrievalRequest
+import com.sermilion.personalgraph.domain.retrieval.SuggestedActionValue
+import com.sermilion.personalgraph.domain.tokens.TokenEstimator
 import com.sermilion.personalgraph.testing.NoOpGraphIndexInvalidator
 import com.sermilion.personalgraph.testing.TestDispatcherProvider
 import com.sermilion.personalgraph.testing.VaultNodeFixtures
@@ -20,13 +26,18 @@ import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
 import io.kotest.matchers.collections.shouldNotContain
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
+import io.mockk.coVerify
+import io.mockk.spyk
 import java.nio.file.Files
 import java.nio.file.Path
 
 class PersonalGraphSessionStartRetrievalServiceTest :
   FunSpec({
 
-    fun newService(): TestContext {
+    fun newService(
+      spyVaultRepository: Boolean = false,
+      spyGraphIndexRepository: Boolean = false,
+    ): TestContext {
       val tempDir = Files.createTempDirectory("session-start-")
       val resolver = VaultPathResolver()
       val dispatcherProvider = TestDispatcherProvider()
@@ -37,17 +48,31 @@ class PersonalGraphSessionStartRetrievalServiceTest :
         pathResolver = resolver,
         graphIndexInvalidator = NoOpGraphIndexInvalidator,
       )
+      val serviceRepository = if (spyVaultRepository) spyk(repo) else repo
       Files.writeString(tempDir.resolve(VaultLayout.BRAIAN_FILENAME), "# Braian\nRoot context.\n")
+      val graphIndexRepository = PersonalGraphGraphIndexRepository(
+        vaultRoot = tempDir,
+        dispatcherProvider = dispatcherProvider,
+        codec = MarkdownFrontmatterCodec(),
+        pathResolver = resolver,
+        tokenEstimator = TokenEstimator,
+      )
+      val serviceGraphIndexRepository = if (spyGraphIndexRepository) {
+        spyk(graphIndexRepository)
+      } else {
+        graphIndexRepository
+      }
       val service = PersonalGraphSessionStartRetrievalService(
         vaultRoot = tempDir,
-        repository = repo,
+        repository = serviceRepository,
+        graphIndexRepository = serviceGraphIndexRepository,
         pathResolver = resolver,
         dispatcherProvider = dispatcherProvider,
       )
-      return TestContext(service, repo, tempDir)
+      return TestContext(service, repo, tempDir, serviceRepository, serviceGraphIndexRepository)
     }
 
-    test("loads Braian first then classified work subtree and linked patterns") {
+    test("map-first loads Braian first then classified work index without linked pattern expansion") {
       val (service, repo) = newService()
       val workNode = VaultNodeFixtures.episodeNode().copy(
         id = NodeId("domains/work/capmo/events/review"),
@@ -68,20 +93,26 @@ class PersonalGraphSessionStartRetrievalServiceTest :
       report.classification.domain shouldBe RetrievalDomain.WorkCapmo
       report.classification.matchedTerms shouldContainExactly listOf("capmo")
       report.loadedBranches.map { it.branch } shouldContainExactly listOf(
-        VaultLayout.BRANCH_STATE_PREFERENCES,
-        VaultLayout.BRANCH_STATE_ROLES,
         "domains/work/capmo",
+        VaultLayout.BRANCH_STATE_PREFERENCES,
       )
       report.loadedNodes.shouldBeEmpty()
       report.loadedContext.map { it.id } shouldContain "Braian.md"
       report.loadedContext.map { it.id } shouldNotContain "domains/work/capmo/events/review"
       report.availableMap.map { it.id } shouldContain "domains/work/capmo"
       report.availableMap.map { it.id } shouldContain "domains/work/capmo/events/review"
-      report.availableMap.map { it.id } shouldContain "patterns/review-shape"
-      report.availableMap.first { it.id == "patterns/review-shape" }.reason shouldContain "wikilinked pattern"
+      report.availableMap.map { it.id } shouldNotContain "patterns/review-shape"
       report.suggestedReads.map { it.id } shouldContain "domains/work/capmo/events/review"
+      report.suggestedActions.map { it.tool } shouldContainExactly listOf("search_nodes", "list_branch")
+      val queryArg = report.suggestedActions.first()
+        .args.first { it.key == "query" }
+        .value
+      (queryArg as SuggestedActionValue.StringValue).value shouldContain "Capmo work please"
+      report.estimatedTokens.responseTotal shouldBe
+        report.estimatedTokens.metadataTokens + report.estimatedTokens.bodyTokens
+      (report.estimatedTokens.responseTotal > 0) shouldBe true
       report.auditEntries shouldBe report.audit
-      report.audit.map { it.action } shouldContain "loaded_pattern"
+      report.audit.map { it.action } shouldContain "loaded_branch_index"
     }
 
     test("explicit full-loading includes non-root loaded node bodies") {
@@ -142,7 +173,7 @@ class PersonalGraphSessionStartRetrievalServiceTest :
       report.loadedNodes.shouldBeEmpty()
     }
 
-    test("available map is bounded") {
+    test("available map is bounded by per-branch top-k before the global cap") {
       val (service, repo) = newService()
       repeat(120) { index ->
         repo.writeNode(
@@ -155,9 +186,32 @@ class PersonalGraphSessionStartRetrievalServiceTest :
 
       val report = service.retrieve(SessionStartRetrievalRequest("Capmo work"))
 
-      report.availableMap.size shouldBe 80
+      report.availableMap.size shouldBe 22
       report.suggestedReads.size shouldBe 8
       report.audit.any { it.action == "map_first_default" } shouldBe true
+    }
+
+    test("map-first keeps subject hubs when large event folders exceed the old branch cap") {
+      val (service, repo) = newService()
+      repeat(1005) { index ->
+        repo.writeNode(
+          VaultNodeFixtures.episodeNode().copy(
+            id = NodeId("domains/work/capmo/events/aaa-item-$index"),
+            topic = "aaa-item-$index",
+          ),
+        ) shouldBe WriteOutcome.Applied
+      }
+      repo.writeNode(
+        VaultNodeFixtures.subjectNode(
+          id = "domains/work/capmo/subjects/zz-attendance",
+          subject = "attendance",
+        ),
+      ) shouldBe WriteOutcome.Applied
+
+      val report = service.retrieve(SessionStartRetrievalRequest("Capmo attendance"))
+
+      report.availableMap.map { it.id } shouldContain "domains/work/capmo/subjects/zz-attendance"
+      report.suggestedReads.first().id shouldBe "domains/work/capmo/subjects/zz-attendance"
     }
 
     test("available map budget preserves classified domain subject over broad global state") {
@@ -173,7 +227,7 @@ class PersonalGraphSessionStartRetrievalServiceTest :
 
       val report = service.retrieve(SessionStartRetrievalRequest("Capmo attendance"))
 
-      report.availableMap.size shouldBe 80
+      report.availableMap.size shouldBe 23
       report.availableMap.map { it.id } shouldContain "domains/work/capmo/subjects/attendance"
       report.suggestedReads.first().id shouldBe "domains/work/capmo/subjects/attendance"
     }
@@ -248,7 +302,7 @@ class PersonalGraphSessionStartRetrievalServiceTest :
       report.availableMap.map { it.id } shouldContain "emotional-states/2026-04-24-debug-frustration"
     }
 
-    test("retrieval skips people and staging sensitive and does not follow symlinked pattern files") {
+    test("retrieval skips people and staging sensitive and does not follow linked pattern files in map-first") {
       val (service, repo, root) = newService()
       val workNode = VaultNodeFixtures.episodeNode().copy(
         id = NodeId("domains/work/capmo/events/symlink-pattern"),
@@ -263,6 +317,12 @@ class PersonalGraphSessionStartRetrievalServiceTest :
         root.resolve("patterns/secret.md"),
         outsideTarget,
       )
+      val outsideBranchTarget = Files.createTempDirectory("session-start-branch-leak-").resolve("branch-secret.md")
+      writeRaw(outsideBranchTarget, VaultNodeFixtures.EPISODE_NODE_MARKDOWN)
+      Files.createSymbolicLink(
+        root.resolve("domains/work/capmo/events/branch-secret.md"),
+        outsideBranchTarget,
+      )
 
       val report = service.retrieve(SessionStartRetrievalRequest("Capmo please"))
 
@@ -270,7 +330,9 @@ class PersonalGraphSessionStartRetrievalServiceTest :
       report.skippedBranches.map { it.branch } shouldContain VaultLayout.BRANCH_STAGING
       report.availableMap.map { it.id }.contains("staging/sensitive/private") shouldBe false
       report.availableMap.map { it.id }.contains("patterns/secret") shouldBe false
-      report.audit.any { it.action == "skipped_pattern" && it.subject == "patterns/secret" } shouldBe true
+      report.availableMap.map { it.id }.contains("domains/work/capmo/events/branch-secret") shouldBe false
+      report.suggestedReads.map { it.id }.contains("domains/work/capmo/events/branch-secret") shouldBe false
+      report.audit.any { it.action == "loaded_branch_index" && it.subject == "domains/work/capmo" } shouldBe true
     }
 
     test("classifier picks the domain with the highest match count") {
@@ -379,21 +441,26 @@ class PersonalGraphSessionStartRetrievalServiceTest :
       }
     }
 
-    test("session_start always loads preferences and roles regardless of classification") {
+    test("map-first narrows classified state to preferences while general keeps durable state branches") {
       val (service, _) = newService()
       val classifications = listOf(
         "Capmo work" to RetrievalDomain.WorkCapmo,
         "song guitar studio" to RetrievalDomain.CreativeMusic,
         "family health habit" to RetrievalDomain.Personal,
-        "What should we talk about next?" to RetrievalDomain.General,
       )
 
       for ((message, expected) in classifications) {
         val report = service.retrieve(SessionStartRetrievalRequest(message))
         report.classification.domain shouldBe expected
         report.loadedBranches.map { it.branch } shouldContain VaultLayout.BRANCH_STATE_PREFERENCES
-        report.loadedBranches.map { it.branch } shouldContain VaultLayout.BRANCH_STATE_ROLES
+        report.loadedBranches.map { it.branch }.shouldNotContain(VaultLayout.BRANCH_STATE_ROLES)
       }
+
+      val generalReport = service.retrieve(SessionStartRetrievalRequest("What should we talk about next?"))
+      generalReport.classification.domain shouldBe RetrievalDomain.General
+      generalReport.loadedBranches.map { it.branch } shouldContain VaultLayout.BRANCH_STATE_PREFERENCES
+      generalReport.loadedBranches.map { it.branch } shouldContain VaultLayout.BRANCH_STATE_ROLES
+      generalReport.loadedBranches.map { it.branch } shouldContain VaultLayout.BRANCH_STATE_KNOWLEDGE
     }
 
     test("state knowledge branch is loaded only on General classification") {
@@ -436,6 +503,24 @@ class PersonalGraphSessionStartRetrievalServiceTest :
       readianReport.suggestedReads.map { it.id } shouldContain "state/preferences/readian-scope"
     }
 
+    test("classified state map reserves global preferences when scoped preferences exceed branch quota") {
+      val (service, repo) = newService()
+      repeat(25) { index ->
+        repo.writeNode(
+          VaultNodeFixtures.stateNode(
+            id = "state/preferences/skill-bill-scope-$index",
+            scope = "work/skill-bill",
+          ),
+        ) shouldBe WriteOutcome.Applied
+      }
+      repo.writeNode(VaultNodeFixtures.stateNode(id = "state/preferences/global")) shouldBe WriteOutcome.Applied
+
+      val report = service.retrieve(SessionStartRetrievalRequest("Skill-bill workflow"))
+
+      report.availableMap.map { it.id } shouldContain "state/preferences/global"
+      report.availableMap.map { it.id } shouldContain "state/preferences/skill-bill-scope-0"
+    }
+
     test("general retrieval excludes scoped state from broad state branches") {
       val (service, repo) = newService()
       repo.writeNode(VaultNodeFixtures.stateNode(id = "state/preferences/global")) shouldBe WriteOutcome.Applied
@@ -452,12 +537,143 @@ class PersonalGraphSessionStartRetrievalServiceTest :
       report.availableMap.map { it.id } shouldContain "state/preferences/global"
       report.availableMap.map { it.id } shouldNotContain "state/preferences/capmo-scope"
     }
+
+    test("classified skill-bill map-first uses scoped top-k index map with exact follow-up paths and lower tokens") {
+      val context = newService(spyVaultRepository = true, spyGraphIndexRepository = true)
+      val service = context.service
+      val repo = context.repository
+      val serviceRepository = context.serviceRepository
+      val graphIndexRepository = context.graphIndexRepository
+      val longBody = (1..400).joinToString(" ") { "body-token-$it" }
+      repo.writeNode(
+        VaultNodeFixtures.subjectNode(
+          id = "domains/work/skill-bill/subjects/session-start",
+          domain = "work/skill-bill",
+          subject = "session-start",
+          body = "## Summary\nSession start should inspect compact maps first.\n\n## Evidence\n$longBody",
+        ),
+      ) shouldBe WriteOutcome.Applied
+      repo.writeNode(
+        VaultNodeFixtures.subjectNode(
+          id = "domains/work/skill-bill/subjects/aaa-old-topic",
+          domain = "work/skill-bill",
+          subject = "aaa-old-topic",
+          body = "## Summary\nOlder unrelated subject hub.\n",
+        ),
+      ) shouldBe WriteOutcome.Applied
+      repo.writeNode(
+        VaultNodeFixtures.subjectNode(
+          id = "domains/work/skill-bill/subjects/bill-feature-implement",
+          domain = "work/skill-bill",
+          subject = "bill-feature-implement",
+          body = "## Summary\nFeature implementation workflow for bill-feature-implement.\n",
+        ),
+      ) shouldBe WriteOutcome.Applied
+      repeat(35) { index ->
+        repo.writeNode(
+          VaultNodeFixtures.episodeNode().copy(
+            id = NodeId("domains/work/skill-bill/events/item-$index"),
+            domain = "work/skill-bill",
+            topic = "item-$index",
+            body = longBody,
+          ),
+        ) shouldBe WriteOutcome.Applied
+      }
+      repo.writeNode(VaultNodeFixtures.stateNode(id = "state/preferences/global")) shouldBe WriteOutcome.Applied
+      repo.writeNode(
+        VaultNodeFixtures.stateNode(
+          id = "state/preferences/skill-bill-scope",
+          scope = "work/skill-bill",
+        ),
+      ) shouldBe WriteOutcome.Applied
+      repo.writeNode(
+        VaultNodeFixtures.stateNode(
+          id = "state/preferences/capmo-scope",
+          scope = "work/capmo",
+        ),
+      ) shouldBe WriteOutcome.Applied
+      repo.writeNode(
+        VaultNodeFixtures.stateNode(
+          id = "state/roles/current-role",
+          category = StateCategory.Role,
+        ),
+      ) shouldBe WriteOutcome.Applied
+
+      val mapReport = service.retrieve(SessionStartRetrievalRequest("Skill-bill session start map"))
+
+      coVerify(exactly = 0) { serviceRepository.listNodesInBranch(any()) }
+      coVerify(exactly = 0) { serviceRepository.findNode(any()) }
+      coVerify(exactly = 0) { graphIndexRepository.listEntriesInBranch(any<String>()) }
+      coVerify {
+        graphIndexRepository.listEntriesInBranch(
+          "domains/work/skill-bill",
+          match {
+            it.limit == 40 &&
+              it.preferredRelativePrefixes.firstOrNull() == VaultLayout.SUB_DOMAIN_SUBJECTS
+          },
+        )
+      }
+      coVerify {
+        graphIndexRepository.listEntriesInBranch(
+          VaultLayout.BRANCH_STATE_PREFERENCES,
+          match { it.limit == 80 },
+        )
+      }
+      mapReport.loadedNodes.shouldBeEmpty()
+      mapReport.loadedContext.map { it.id } shouldContainExactly listOf("Braian.md")
+      mapReport.loadedBranches.map { it.branch } shouldContainExactly listOf(
+        "domains/work/skill-bill",
+        VaultLayout.BRANCH_STATE_PREFERENCES,
+      )
+      mapReport.availableMap.size shouldBe 24
+      mapReport.availableMap.map { it.id } shouldContain "domains/work/skill-bill/subjects/session-start"
+      mapReport.availableMap.map { it.id } shouldContain "state/preferences/global"
+      mapReport.availableMap.map { it.id } shouldContain "state/preferences/skill-bill-scope"
+      mapReport.availableMap.map { it.id } shouldNotContain "state/preferences/capmo-scope"
+      mapReport.availableMap.map { it.id } shouldNotContain "state/roles/current-role"
+      mapReport.suggestedReads.map { it.id } shouldContain "domains/work/skill-bill/subjects/session-start"
+      mapReport.suggestedReads.map { it.id } shouldContain "state/preferences/skill-bill-scope"
+      val featureReport = service.retrieve(SessionStartRetrievalRequest("Skill-bill feature implementation"))
+      featureReport.suggestedReads.first().id shouldBe
+        "domains/work/skill-bill/subjects/bill-feature-implement"
+      featureReport.suggestedReads.map { it.id } shouldContain "state/preferences/skill-bill-scope"
+
+      val actions = mapReport.suggestedActions
+      actions.map { it.tool } shouldContainExactly listOf("search_nodes", "list_branch")
+      val searchBranches = actions.first { it.tool == "search_nodes" }
+        .args.first { it.key == "branches" }
+        .value as SuggestedActionValue.StringListValue
+      searchBranches.value shouldContainExactly listOf(
+        "domains/work/skill-bill",
+        VaultLayout.BRANCH_STATE_PREFERENCES,
+      )
+      val listBranchArgs = actions.first { it.tool == "list_branch" }.args.associateBy { it.key }
+      (listBranchArgs.getValue("branch").value as SuggestedActionValue.StringValue).value shouldBe
+        "domains/work/skill-bill"
+      (listBranchArgs.getValue("mode").value as SuggestedActionValue.StringValue).value shouldBe "index"
+      (listBranchArgs.getValue("include_links").value as SuggestedActionValue.BooleanValue).value shouldBe true
+      (listBranchArgs.getValue("include_body").value as SuggestedActionValue.BooleanValue).value shouldBe false
+      (listBranchArgs.getValue("limit").value as SuggestedActionValue.IntValue).value shouldBe 20
+
+      val fullReport = service.retrieve(
+        SessionStartRetrievalRequest(
+          firstSubstantiveMessage = "Skill-bill session start map",
+          retrievalMode = SessionStartRetrievalMode.FullLoading,
+        ),
+      )
+      (mapReport.estimatedTokens.responseTotal < fullReport.estimatedTokens.responseTotal) shouldBe true
+      mapReport.estimatedTokens.bodyTokens shouldBe fullReport.rootDocument
+        ?.body
+        ?.let { TokenEstimator.estimateBody(it) }
+    }
   })
 
 private data class TestContext(
   val service: PersonalGraphSessionStartRetrievalService,
   val repository: PersonalGraphVaultRepository,
   val root: Path,
+  val serviceRepository: VaultRepository,
+  val graphIndexRepository: GraphIndexRepository,
 )
 
 private fun writeRaw(path: Path, body: String) {

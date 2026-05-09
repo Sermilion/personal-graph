@@ -1,14 +1,22 @@
 # core/data — history
 
-## [2026-05-09] traversal-foundation-finalized (PG-6 subtask 1)
-Areas: core/domain/search, core/data/search, core/data/di, core/domain/graph, core/domain/tokens
-- `TraverseGraphService` is the reusable domain/data boundary for traversal; MCP/session_start/read_node wiring stays intentionally out of scope for this subtask.
-- Exact path lookups are branch-warm/retry aware and score as exact even when start ids already fill the entrypoint cap; future path-style retrieval should not let side-map coldness or entrypoint caps hide exact nodes.
-- Backlinks are opt-in by default and built from warmed `GraphIndexEntry.links`, not per-node `VaultRepository.listBacklinks`; explicit backlink traversal warms scoped branches once and reuses the reverse map.
-- Token budgeting accounts for diagnostics (`entrypoints`, `pruned`, `suggestedReads`) as well as nodes/edges; body hydration is gated by indexed body estimates before reading full bodies.
-- Tests now lock service-level direct-evidence ranking, concrete edge weights, policy-hidden outputs, path cold-start behavior, generated DI binding, and body/budget pruning.
+## [2026-05-08] scoped-session-start-map (PG-7)
+Areas: core/data (session-start retrieval + graph index repository), core/domain (graph index contract), cli tests
+- `session_start` MapFirst now classifies project prompts into scoped branch plans and builds the default map from bounded graph-index entries instead of hydrating full branch bodies.
+- Added `GraphIndexBranchQuery` with per-branch limits and preferred relative prefixes so hot paths can request top-K previews without relying on repository-wide caps.
+- Scoped state maps reserve essential global preferences before branch quotas, preventing large project-specific state sets from evicting cross-project defaults.
+- Full-loading keeps the prior body/linked-pattern behavior as the explicit opt-in path; follow-up actions still point agents to `search_nodes`, `list_branch(mode=index)`, and `read_node`.
+- Regression tests cover crowded event folders, scoped preference overflow, bounded query usage, token reduction versus full-loading, and symlink rejection inside planned branches.
 Feature flag: N/A
-Acceptance criteria: 7/7 implemented
+Acceptance criteria: 5/5 implemented
+
+## [2026-05-04] session-start actions and token accounting (PG-6 subtask 3/4)
+Areas: core/data (session-start retrieval service + suggestion/token helpers), core/domain (session-start report contract), mcp-server (session_start formatter + schema descriptions), cli/docs
+- `session_start` now emits `suggested_actions` alongside `suggested_reads`; identifier-like prompts route to `search_nodes` first, while broader prompts also suggest `list_branch(mode=index)` before any full-body branch read (reusable search-first retrieval pattern)
+- Response token accounting is now surfaced as `estimated_tokens` with response_total/metadata/body/pruned_body counts, computed deterministically from the loaded contexts, map entries, actions, and audit trail (reusable for any future response-shaped retrieval surface)
+- CLI output and docs now explain the search-first path and SKILL-33-style example, keeping the default retrieval workflow aligned with the MCP contract
+Feature flag: N/A
+Acceptance criteria: pending final validation
 
 ## [2026-05-04] traversal-foundation (PG-6 subtask 1)
 Areas: core/domain (TraverseGraphService + TraverseGraphQuery/Outcome models), core/data (PersonalGraphTraverseGraphService + traversal helpers + DataSearchComponent binding)

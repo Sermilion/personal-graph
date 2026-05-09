@@ -49,12 +49,13 @@ internal fun availableMap(
   loadedBranches: List<RetrievedBranch>,
   loadedNodes: List<RetrievedNode>,
   classification: RetrievalClassification,
+  relevanceTerms: Set<String>,
 ): List<CompactMapEntry> = buildList {
   loadedBranches.mapTo(this) { it.toMapEntry() }
   loadedNodes
     .map { it.toMapEntry() }
     .sortedWith(
-      compareByDescending<CompactMapEntry> { it.mapBudgetScore(classification.domain) }
+      compareByDescending<CompactMapEntry> { it.mapBudgetScore(classification.domain, relevanceTerms) }
         .thenBy { it.id },
     )
     .take(maxOf(0, MAX_AVAILABLE_MAP_ENTRIES - loadedBranches.size))
@@ -64,20 +65,33 @@ internal fun availableMap(
 internal fun suggestedReads(
   availableMap: List<CompactMapEntry>,
   classification: RetrievalClassification,
+  relevanceTerms: Set<String>,
   audit: MutableList<RetrievalAuditEntry>,
 ): List<SuggestedRead> {
-  val reads = availableMap
+  val sortedEligible = availableMap
     .filter { it.kind == CompactMapEntryKind.Node }
     .filter { it.isSuggestedFor(classification.domain) }
     .sortedWith(
-      compareByDescending<CompactMapEntry> { it.suggestionScore(classification.domain) }
+      compareByDescending<CompactMapEntry> { it.suggestionScore(classification.domain, relevanceTerms) }
         .thenBy { it.id },
     )
+  val pinned = sortedEligible
+    .firstOrNull { it.type == "subject" && it.domain == classification.domain.value }
+    .plusIfPresent(
+      sortedEligible.firstOrNull {
+        it.type == "state" &&
+          (it.scope == classification.domain.value || classification.domain.value in it.scopes)
+      },
+    )
+  val pinnedIds = pinned.mapTo(mutableSetOf()) { it.id }
+  val reads = (pinned + sortedEligible.filterNot { it.id in pinnedIds })
     .take(MAX_SUGGESTED_READS)
     .map { entry -> entry.toSuggestedRead(classification.domain, audit) }
   if (reads.isEmpty()) audit.addNoSuggestedRead(classification.domain)
   return reads
 }
+
+private fun CompactMapEntry?.plusIfPresent(other: CompactMapEntry?): List<CompactMapEntry> = listOfNotNull(this, other)
 
 private fun StateNode.isVisibleForRetrievalDomain(domain: RetrievalDomain): Boolean {
   val hasNoScope = scope == null && scopes.isEmpty()
@@ -102,7 +116,7 @@ private fun RetrievedNode.toLoadedContext(): LoadedFullBodyContext = LoadedFullB
   reason = reason,
 )
 
-private fun RetrievedBranch.toMapEntry(): CompactMapEntry = CompactMapEntry(
+internal fun RetrievedBranch.toMapEntry(): CompactMapEntry = CompactMapEntry(
   id = branch,
   kind = CompactMapEntryKind.Branch,
   reason = reason,
@@ -134,6 +148,3 @@ private fun RetrievedNode.toMapEntry(): CompactMapEntry {
 private fun RetrievedNode.safeMapLinks(): List<String> = (links + patternLinks)
   .distinct()
   .filterNot { it.isDefaultBlockedMapLink() }
-
-private fun String.isDefaultBlockedMapLink(): Boolean = startsWith("${VaultLayout.BRANCH_PEOPLE}/") ||
-  startsWith("${VaultLayout.BRANCH_STAGING}/")

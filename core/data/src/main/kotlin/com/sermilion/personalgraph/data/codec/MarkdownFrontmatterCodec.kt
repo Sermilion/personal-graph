@@ -81,16 +81,16 @@ class MarkdownFrontmatterCodec {
   ): VaultNode? = try {
     decodeUnsafe(id, raw, bodyTransform)
   } catch (e: SerializationException) {
-    logger.warn(e) { "Failed to decode markdown for id=$id reason=${e.reasonString()}" }
+    logger.warn { "Failed to decode markdown for id=$id reason=${e.reasonString()}" }
     null
   } catch (e: IllegalArgumentException) {
-    logger.warn(e) { "Invalid markdown frontmatter for id=$id reason=${e.reasonString()}" }
+    logger.warn { "Invalid markdown frontmatter for id=$id reason=${e.reasonString()}" }
     null
   } catch (e: StackOverflowError) {
-    logger.warn(e) { "Pathological YAML caused stack overflow for id=$id reason=${e.reasonString()}" }
+    logger.warn { "Pathological YAML caused stack overflow for id=$id reason=${e.reasonString()}" }
     null
   } catch (e: OutOfMemoryError) {
-    logger.warn(e) { "Pathological YAML caused OOM for id=$id reason=${e.reasonString()}" }
+    logger.warn { "Pathological YAML caused OOM for id=$id reason=${e.reasonString()}" }
     null
   }
 

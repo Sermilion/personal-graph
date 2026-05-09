@@ -12,7 +12,6 @@ internal class TraversalSelectionBuilder(
   private val tokenEstimator: TokenEstimator,
   private val query: TraverseGraphQuery,
   private val allEdges: List<TraversalEdge>,
-  private val baseTokenEstimate: Int = 0,
 ) {
   private val edgesByEndpoint = edgesByEndpoint(allEdges)
 
@@ -22,7 +21,7 @@ internal class TraversalSelectionBuilder(
     val pruned = mutableListOf<TraversalPrunedCandidate>()
     val maxNodes = query.maxNodes.coerceAtLeast(0)
     val budgetTokens = query.budgetTokens.coerceAtLeast(0)
-    var usedTokens = baseTokenEstimate
+    var usedTokens = 0
     for (candidate in ranked) {
       val nodeEstimate = estimateCandidate(tokenEstimator, candidate, query.includeBodies)
       val edgeEstimate = edgeEstimateForCandidate(candidate.entry.id, includedIds)
@@ -42,56 +41,12 @@ internal class TraversalSelectionBuilder(
     return TraversalSelection(included = included, pruned = pruned)
   }
 
-  suspend fun selectWithBodyHydration(
-    ranked: List<TraversalCandidate>,
-    hydrateBody: suspend (TraversalCandidate) -> Unit,
-  ): TraversalSelection {
-    val included = mutableListOf<TraversalCandidate>()
-    val includedIds = mutableSetOf<NodeId>()
-    val pruned = mutableListOf<TraversalPrunedCandidate>()
-    val maxNodes = query.maxNodes.coerceAtLeast(0)
-    val budgetTokens = query.budgetTokens.coerceAtLeast(0)
-    var usedTokens = baseTokenEstimate
-    for (candidate in ranked) {
-      val edgeEstimate = edgeEstimateForCandidate(candidate.entry.id, includedIds)
-      val metadataEstimate = estimateCandidate(tokenEstimator, candidate, includeBody = false) + edgeEstimate
-      when {
-        included.size >= maxNodes -> pruned += prunedCandidate(
-          candidate,
-          TraversalPrunedReason.MaxNodes,
-          metadataEstimate,
-        )
-        usedTokens + metadataEstimate > budgetTokens -> {
-          pruned += prunedCandidate(candidate, TraversalPrunedReason.BudgetTokens, metadataEstimate)
-        }
-        else -> {
-          val indexedBodyEstimate = estimateCandidate(tokenEstimator, candidate, includeBody = true) + edgeEstimate
-          if (usedTokens + indexedBodyEstimate > budgetTokens) {
-            pruned += prunedCandidate(candidate, TraversalPrunedReason.BudgetTokens, indexedBodyEstimate)
-            continue
-          }
-          hydrateBody(candidate)
-          val hydratedEstimate = estimateCandidate(tokenEstimator, candidate, includeBody = true) + edgeEstimate
-          if (usedTokens + hydratedEstimate > budgetTokens) {
-            pruned += prunedCandidate(candidate, TraversalPrunedReason.BudgetTokens, hydratedEstimate)
-          } else {
-            included += candidate
-            includedIds += candidate.entry.id
-            usedTokens += hydratedEstimate
-          }
-        }
-      }
-    }
-    return TraversalSelection(included = included, pruned = pruned)
-  }
-
   fun trimToBudget(selection: TraversalSelection): TraversalSelection {
     val budgetTokens = query.budgetTokens.coerceAtLeast(0)
     val included = selection.included.toMutableList()
     val includedIds = included.mapTo(mutableSetOf()) { it.entry.id }
     val pruned = selection.pruned.toMutableList()
-    var usedTokens = baseTokenEstimate +
-      included.sumOf { estimateCandidate(tokenEstimator, it, query.includeBodies) } +
+    var usedTokens = included.sumOf { estimateCandidate(tokenEstimator, it, query.includeBodies) } +
       includedEdgeEstimate(includedIds)
     while (included.isNotEmpty() && usedTokens > budgetTokens) {
       val removed = included.removeAt(included.lastIndex)
@@ -147,14 +102,11 @@ internal class TraversalSelectionBuilder(
   )
 }
 
-internal fun suggestedReads(
-  pruned: List<TraversalPrunedCandidate>,
-  limit: Int = MAX_SUGGESTED_READS,
-): List<TraversalSuggestedRead> {
+internal fun suggestedReads(pruned: List<TraversalPrunedCandidate>): List<TraversalSuggestedRead> {
   val ranked = pruned.sortedWith(
     compareByDescending<TraversalPrunedCandidate> { it.score }.thenBy { it.id.value },
   )
-  return ranked.take(limit.coerceAtLeast(0)).map {
+  return ranked.take(MAX_SUGGESTED_READS).map {
     TraversalSuggestedRead(
       id = it.id,
       reason = it.reason.name,

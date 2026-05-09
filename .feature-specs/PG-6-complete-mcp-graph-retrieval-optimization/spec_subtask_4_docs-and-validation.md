@@ -1,6 +1,6 @@
 # PG-6 Subtask 4 - Docs, end-to-end workflow tests, and final validation
 
-- **Status:** Planned
+- **Status:** Complete
 - **Issue key:** PG-6
 - **Subtask:** 4 of 4
 - **Sources:** [parent spec](./spec.md)
